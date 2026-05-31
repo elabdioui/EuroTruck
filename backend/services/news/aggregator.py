@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from threading import Lock
 
 from .forex_factory import NewsEvent, fetch_calendar, get_upcoming_us_events, is_red_news_imminent, is_orange_news_imminent
-from .dxy_yields import MacroContext, fetch_macro
+from .dxy_yields import MacroContext, fetch_macro, macro_alignment
 from core.config import settings
 
 log = logging.getLogger(__name__)
@@ -30,8 +30,11 @@ def refresh_news() -> None:
     log.info("News cache refreshed — %d events, macro=%s", len(events), "ok" if macro else "fail")
 
 
-def get_news_context(window_minutes: int = 60) -> dict:
-    """Return a structured news context dict for use in LLM prompts."""
+def get_news_context(window_minutes: int = 60, direction: str | None = None) -> dict:
+    """Return a structured news context dict for use in LLM prompts.
+
+    If `direction` ("LONG"/"SHORT") is provided, also include macro_alignment.
+    """
     with _lock:
         events: list[NewsEvent] = _cache["events"]
         macro: MacroContext | None = _cache["macro"]
@@ -50,7 +53,7 @@ def get_news_context(window_minutes: int = 60) -> dict:
         for e in upcoming
     ]
 
-    return {
+    context = {
         "red_news_imminent": red_imminent,
         "upcoming_us_events": upcoming_dicts,
         "macro": macro.to_prompt_string() if macro else "Macro data unavailable",
@@ -60,12 +63,26 @@ def get_news_context(window_minutes: int = 60) -> dict:
         ),
     }
 
+    if direction is not None:
+        context["macro_alignment"] = macro_alignment(direction, macro)
+
+    return context
+
 
 def is_red_news_kill_switch(window_minutes: int | None = None) -> bool:
-    """Hard kill-switch: True if red US news within the configured window."""
+    """Hard kill-switch: True if red US news within the configured window.
+
+    BUGFIX: if the cache was never refreshed (updated_at is None), the old code
+    returned False (no events => no red news) and the bot traded with NO news
+    filter at all. We now block as a precaution when the cache is empty.
+    """
     w = window_minutes or settings.NEWS_RED_BLOCK_WINDOW_MIN
     with _lock:
         events: list[NewsEvent] = _cache["events"]
+        updated_at = _cache["updated_at"]
+    if updated_at is None:
+        log.warning("News cache empty (never refreshed) — blocking as precaution")
+        return True
     return is_red_news_imminent(events, w)
 
 

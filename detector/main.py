@@ -14,8 +14,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import mt5_client as mt5
 from config import cfg
 from strategy import (
-    scan_golden_setup, scan_ob_retest, scan_london_sweep,
-    scan_breaker_fib, scan_bos_fvg,
+    scan_golden_setup, scan_ob_retest, scan_london_sweep, scan_sfp_asia,
+    scan_breaker_fib, scan_bos_fvg, scan_break_retest,
     is_in_killzone, minutes_to_next_killzone, get_active_killzone,
 )
 from webhook import send_signal
@@ -47,6 +47,8 @@ _SCANNER_MAP = {
         lambda tf: scan_ob_retest(tf, "SHORT"),
         lambda tf: scan_london_sweep(tf, "LONG"),
         lambda tf: scan_london_sweep(tf, "SHORT"),
+        lambda tf: scan_sfp_asia(tf, "LONG"),
+        lambda tf: scan_sfp_asia(tf, "SHORT"),
     ],
     "B": [
         lambda tf: scan_breaker_fib(tf, "LONG"),
@@ -54,11 +56,20 @@ _SCANNER_MAP = {
         lambda tf: scan_bos_fvg(tf, "LONG"),
         lambda tf: scan_bos_fvg(tf, "SHORT"),
     ],
+    "SWING": [
+        lambda tf: scan_break_retest(tf, "LONG"),
+        lambda tf: scan_break_retest(tf, "SHORT"),
+    ],
 }
 
-# Dedup: don't resend the same tier+direction+pattern within 5 minutes
 _last_sent: dict[str, datetime] = {}
-_COOLDOWN_SECONDS = 300
+_COOLDOWN_BY_TIER = {
+    "S": 300,        # 5 min
+    "A": 300,        # 5 min
+    "B": 300,        # 5 min
+    "SWING": 14400,  # 4 h — un setup swing reste valide longtemps
+}
+_DEFAULT_COOLDOWN = 300
 
 
 def _cooldown_key(signal: dict) -> str:
@@ -70,10 +81,9 @@ def _is_cooling_down(signal: dict) -> bool:
     last = _last_sent.get(key)
     if last is None:
         return False
+    cooldown = _COOLDOWN_BY_TIER.get(signal.get("tier"), _DEFAULT_COOLDOWN)
     elapsed = (datetime.now(tz=timezone.utc) - last).total_seconds()
-    return elapsed < _COOLDOWN_SECONDS
-
-
+    return elapsed < cooldown
 def scan_once() -> None:
     now_utc = datetime.now(tz=timezone.utc)
 

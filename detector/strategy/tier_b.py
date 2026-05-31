@@ -14,6 +14,14 @@ from config import cfg
 log = logging.getLogger(__name__)
 
 
+def _safe_rr(target: float, entry_mid: float, sl: float) -> float | None:
+    """Risk-reward with a divide-by-zero guard. Returns None if SL == entry."""
+    denom = abs(entry_mid - sl)
+    if denom < 0.01:
+        return None
+    return abs(target - entry_mid) / denom
+
+
 def scan_breaker_fib(
     tf_data: dict[str, pd.DataFrame],
     direction: str = "LONG",
@@ -29,7 +37,7 @@ def scan_breaker_fib(
 
     m5 = tf_data.get("M5")
     h4 = tf_data.get("H4")
-    if m5 is None or h4 is None or m5.empty:
+    if m5 is None or h4 is None or m5.empty or h4.empty:
         return None
 
     h4_swings = find_swings(h4, lookback=cfg.SWING_LOOKBACK)
@@ -43,7 +51,9 @@ def scan_breaker_fib(
     m5_obs = detect_order_blocks(m5, lookback=cfg.OB_LOOKBACK)
     m5_obs = update_mitigation(m5_obs, m5)
 
-    # Breaker = mitigated OB that has flipped
+    # Breaker = mitigated OB that has flipped.
+    # For a LONG: a former BEARISH OB broken to the upside acts as bullish support.
+    # For a SHORT: a former BULLISH OB broken to the downside acts as bearish resistance.
     opp_dir = "BEARISH" if direction == "LONG" else "BULLISH"
     breakers = [o for o in m5_obs if o.is_breaker and o.type == opp_dir]
     if not breakers:
@@ -84,8 +94,8 @@ def scan_breaker_fib(
         tp = min((s.price for s in m5_swings if s.type == "LOW"), default=current_price * 0.997)
 
     mid = (nearest_breaker.top + nearest_breaker.bottom) / 2
-    rr = abs(tp - mid) / max(abs(mid - sl), 0.01)
-    if rr < 1.5:
+    rr = _safe_rr(tp, mid, sl)
+    if rr is None or rr < 1.5:
         return None
 
     return {
@@ -121,7 +131,7 @@ def scan_bos_fvg(
 
     m5 = tf_data.get("M5")
     h4 = tf_data.get("H4")
-    if m5 is None or h4 is None or m5.empty:
+    if m5 is None or h4 is None or m5.empty or h4.empty:
         return None
 
     h4_swings = find_swings(h4, lookback=cfg.SWING_LOOKBACK)
@@ -131,8 +141,13 @@ def scan_bos_fvg(
         return None
 
     m5_swings = find_swings(m5, lookback=cfg.SWING_LOOKBACK)
-    m5_bias = determine_bias(m5_swings)
-    breaks = detect_structure_breaks(m5, m5_swings, m5_bias)  # type: ignore[arg-type]
+
+    # BUGFIX: classify BOS/CHoCH against the EXPECTED (H4) bias, not the M5 bias.
+    # The original passed m5_bias, which can be "NEUTRAL"; in that case
+    # detect_structure_breaks never labels a break as BOS, so this setup could
+    # never fire even when a valid BOS existed. Using the H4 bias as the
+    # prevailing-trend reference makes BOS classification deterministic.
+    breaks = detect_structure_breaks(m5, m5_swings, expected)  # type: ignore[arg-type]
     bos_list = [b for b in breaks if b.type == "BOS" and b.direction == expected]
     if not bos_list:
         return None
@@ -162,8 +177,8 @@ def scan_bos_fvg(
         tp = min((s.price for s in m5_swings if s.type == "LOW"), default=current_price * 0.997)
 
     mid = (best_fvg.top + best_fvg.bottom) / 2
-    rr = abs(tp - mid) / max(abs(mid - sl), 0.01)
-    if rr < 1.5:
+    rr = _safe_rr(tp, mid, sl)
+    if rr is None or rr < 1.5:
         return None
 
     return {

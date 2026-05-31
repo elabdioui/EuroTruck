@@ -30,6 +30,27 @@ from config import cfg
 log = logging.getLogger(__name__)
 
 
+def _to_comparable_dt(value) -> datetime | None:
+    """
+    Normalize a time value (pandas.Timestamp, numpy.datetime64, or datetime)
+    into a timezone-aware UTC python datetime so comparisons never raise
+    on tz-aware vs tz-naive mismatch.
+
+    BUGFIX: the original code compared choch.time <= sweep_time directly.
+    Depending on the data source one side could be tz-naive and the other
+    tz-aware, raising TypeError which was swallowed by the caller's try/except,
+    silently dropping valid signals.
+    """
+    if value is None:
+        return None
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
+    return ts.to_pydatetime()
+
+
 def _compute_sl_tp(
     direction: str,
     entry_low: float,
@@ -112,12 +133,15 @@ def scan_golden_setup(
         log.debug("No CHoCH %s on M5 — Tier S skip", expected_bias)
         return None
 
-    if recent_sweep.sweep_time is not None and choch.time <= recent_sweep.sweep_time:
+    # BUGFIX: normalize both datetimes before comparing (see _to_comparable_dt).
+    sweep_dt = _to_comparable_dt(recent_sweep.sweep_time)
+    choch_dt = _to_comparable_dt(choch.time)
+    if sweep_dt is not None and choch_dt is not None and choch_dt <= sweep_dt:
         log.debug("CHoCH (%s) not after sweep (%s) — temporal order violated, Tier S skip",
-                  choch.time, recent_sweep.sweep_time)
+                  choch_dt, sweep_dt)
         return None
 
-    # 5. FVG on M5/M1 (look in last 20 candles post-sweep)
+    # 5. FVG on M5/M1 (look in last 30 candles post-sweep)
     m5_fvgs = detect_fvg(m5.iloc[-30:], min_size_pips=cfg.FVG_MIN_SIZE_PIPS)
     fvg_dir = "BULLISH" if direction == "LONG" else "BEARISH"
     current_price = m5.iloc[-1]["close"]
@@ -199,7 +223,13 @@ def scan_golden_setup(
 
     sl, tp = _compute_sl_tp(direction, entry_low, entry_high, sweep_extreme, target_tp)
 
-    rr = abs(tp - (entry_low + entry_high) / 2) / abs((entry_low + entry_high) / 2 - sl)
+    # BUGFIX: guard against division by zero when entry mid == sl.
+    entry_mid = (entry_low + entry_high) / 2
+    denom = abs(entry_mid - sl)
+    if denom < 0.01:
+        log.debug("Entry mid too close to SL — Tier S skip")
+        return None
+    rr = abs(tp - entry_mid) / denom
     if rr < 2.0:
         log.debug("RR %.1f < 2.0 — Tier S skip", rr)
         return None

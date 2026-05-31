@@ -45,6 +45,19 @@ class Config:
     MIN_SCORE_S: int = 7   # Tier S: requires strong confluences
     MIN_SCORE_A: int = 5   # Tier A: moderate
     MIN_SCORE_B: int = 4   # Tier B: baseline
+    
+    # SFP Asia + OTE (Tier A new)
+    SFP_VOLUME_LOOKBACK: int = 10       # candles for the avg-volume baseline
+    SFP_VOLUME_FACTOR: float = 1.0      # reintegration candle vol > factor * avg
+    SFP_SL_BUFFER_PIPS: float = 8.0     # 5–10 pip range from the doc
+
+    # Break & Retest S/R (Tier SWING new)
+    SR_MIN_REJECTIONS: int = 2          # min swings clustering to call it an S/R level
+    SR_TOLERANCE_PIPS: float = 30.0     # clustering tolerance for S/R levels
+    SR_VOLUME_MA_PERIOD: int = 20       # volume MA period for breakout confirmation
+    SR_VOLUME_FACTOR: float = 1.3       # breakout candle vol > 1.3 * MA20
+    SR_SL_BUFFER_PIPS: float = 70.0     # 50–100 pip range from the doc
+    SWING_RR_MIN: float = 2.5           # min RR for swing trades
 
 
 cfg = Config()

@@ -56,7 +56,7 @@ async def receive_signal(
         return {"status": "blocked", "reason": "orange_news_kill_switch"}
 
     # Enrich with news context
-    news_context = get_news_context(window_minutes=60)
+    news_context = get_news_context(window_minutes=60, direction=signal.get("direction"))
 
     # LLM verdict
     verdict, provider = get_verdict(signal, news_context)

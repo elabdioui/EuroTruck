@@ -8,11 +8,17 @@ import json
 import sys
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
+from dotenv import load_dotenv
 import httpx
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 BACKEND_URL = os.getenv("BACKEND_WEBHOOK_URL", "http://localhost:8000/signal")
-SECRET = os.getenv("WEBHOOK_HMAC_SECRET", "test-secret-32chars-aaaaaaaaaaaa")
+SECRET = os.getenv("WEBHOOK_HMAC_SECRET", "")
+if not SECRET:
+    sys.exit("WEBHOOK_HMAC_SECRET is not set — check your .env file")
 
 MOCK_SIGNAL = {
     "id": "mock-test-001",

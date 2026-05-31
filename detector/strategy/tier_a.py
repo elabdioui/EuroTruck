@@ -1,6 +1,7 @@
 """Tier A setups: OB Retest + London Open Sweep."""
 import logging
 import pandas as pd
+import pytz
 
 from indicators import (
     detect_fvg, filter_unfilled_fvg, get_recent_fvg,
@@ -12,6 +13,58 @@ from strategy.killzone import get_active_killzone
 from config import cfg
 
 log = logging.getLogger(__name__)
+
+_NY_TZ = pytz.timezone("America/New_York")
+
+
+def get_asia_range(m15: pd.DataFrame) -> tuple[float | None, float | None]:
+    """
+    Compute the Asia session range using TIMESTAMPS, not row indices.
+
+    Asia session = 20:00–00:00 New York time (authoritative project definition),
+    converted to UTC with DST handled by pytz.
+
+    BUGFIX: the original code used m15.iloc[-50:-18], a fixed index slice that
+    breaks whenever MT5 has data gaps (weekends, maintenance) and ignores DST.
+    That could point at completely wrong candles and produce a false Asia range.
+
+    Returns (asia_high, asia_low), or (None, None) if no candles fall in the window.
+    Requires a tz-aware 'time' column in UTC (as produced by mt5_client.get_ohlc).
+    """
+    if m15 is None or m15.empty or "time" not in m15.columns:
+        return None, None
+
+    times = pd.to_datetime(m15["time"], utc=True)
+
+    # Reference "now" = latest candle time, in NY tz
+    now_utc = times.iloc[-1]
+    now_ny = now_utc.tz_convert(_NY_TZ)
+
+    # Asia open = 20:00 NY of the relevant day
+    asia_start_ny = now_ny.replace(hour=20, minute=0, second=0, microsecond=0)
+    if now_ny.hour < 20:
+        # Before 20:00 NY → Asia session started the previous calendar day
+        asia_start_ny = asia_start_ny - pd.Timedelta(days=1)
+    asia_end_ny = asia_start_ny + pd.Timedelta(hours=4)  # 00:00 NY next
+
+    asia_start_utc = asia_start_ny.tz_convert("UTC")
+    asia_end_utc = asia_end_ny.tz_convert("UTC")
+
+    mask = (times >= asia_start_utc) & (times < asia_end_utc)
+    asia_df = m15[mask.values]
+    if asia_df.empty:
+        log.debug("Asia range empty for window %s–%s UTC", asia_start_utc, asia_end_utc)
+        return None, None
+
+    return float(asia_df["high"].max()), float(asia_df["low"].min())
+
+
+def _safe_rr(target: float, entry_mid: float, sl: float) -> float | None:
+    """Risk-reward with a divide-by-zero guard. Returns None if SL == entry."""
+    denom = abs(entry_mid - sl)
+    if denom < 0.01:
+        return None
+    return abs(target - entry_mid) / denom
 
 
 def scan_ob_retest(
@@ -28,7 +81,7 @@ def scan_ob_retest(
     h1 = tf_data.get("H1")
     h4 = tf_data.get("H4")
     m5 = tf_data.get("M5")
-    if h1 is None or h4 is None or m5 is None or h1.empty or m5.empty:
+    if h1 is None or h4 is None or m5 is None or h1.empty or m5.empty or h4.empty:
         return None
 
     killzone = get_active_killzone()
@@ -80,8 +133,8 @@ def scan_ob_retest(
         sl = ob.top + 3 * 0.10
 
     mid_entry = (ob.top + ob.bottom) / 2
-    rr = abs(target_tp - mid_entry) / abs(mid_entry - sl)
-    if rr < 1.5:
+    rr = _safe_rr(target_tp, mid_entry, sl)
+    if rr is None or rr < 1.5:
         return None
 
     return {
@@ -118,7 +171,7 @@ def scan_london_sweep(
     m15 = tf_data.get("M15")
     m5 = tf_data.get("M5")
     h4 = tf_data.get("H4")
-    if m15 is None or m5 is None or h4 is None or m15.empty:
+    if m15 is None or m5 is None or h4 is None or m15.empty or m5.empty or h4.empty:
         return None
 
     h4_swings = find_swings(h4, lookback=cfg.SWING_LOOKBACK)
@@ -127,10 +180,11 @@ def scan_london_sweep(
     if h4_bias != expected:
         return None
 
-    # Asia range = last 8 hours before London (roughly M15 candles 0–32)
-    asia_df = m15.iloc[-50:-18] if len(m15) >= 50 else m15.iloc[:-5]
-    asia_high = asia_df["high"].max()
-    asia_low = asia_df["low"].min()
+    # BUGFIX: Asia range now computed from timestamps (20:00–00:00 NY), not iloc.
+    asia_high, asia_low = get_asia_range(m15)
+    if asia_high is None or asia_low is None:
+        log.debug("No valid Asia range — London Sweep skip")
+        return None
 
     current_price = m5.iloc[-1]["close"]
 
@@ -166,8 +220,8 @@ def scan_london_sweep(
         target_tp = asia_low
 
     mid = (best_fvg.top + best_fvg.bottom) / 2
-    rr = abs(target_tp - mid) / abs(mid - sl)
-    if rr < 1.5:
+    rr = _safe_rr(target_tp, mid, sl)
+    if rr is None or rr < 1.5:
         return None
 
     return {
@@ -184,4 +238,148 @@ def scan_london_sweep(
         "confluences": confluences,
         "confluence_score": score,
         "estimated_winrate": 0.60,
+    }
+    
+# ──────────────────────────────────────────────────────────────────────────────
+# SFP (Swing Failure Pattern) at Asia range extreme + OTE + volume confirmation
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _avg_volume(df: pd.DataFrame, lookback: int) -> float | None:
+    """Mean volume of the `lookback` candles BEFORE the last one. None if unavailable."""
+    if "volume" not in df.columns or len(df) < lookback + 1:
+        return None
+    window = df["volume"].iloc[-(lookback + 1):-1]
+    if window.empty:
+        return None
+    return float(window.mean())
+
+
+def scan_sfp_asia(
+    tf_data: dict[str, pd.DataFrame],
+    direction: str = "LONG",
+) -> dict | None:
+    """
+    SFP Asia + OTE (document Setup 3, tightened):
+    - Active killzone LONDON or NY_AM
+    - H4 bias aligned
+    - Confirmation candle (M15) wicks BEYOND the Asia extreme but CLOSES back inside
+    - Reintegration candle volume > factor * average of previous N candles
+    - The sweep occurs within OTE (0.618–0.786) of the recent M15 leg (HTF proxy)
+    - RR target 2.5–3.0 (reject < 2.0)
+
+    NOTE: the OTE "daily leg" from the doc is approximated by the most recent M15
+    swing leg, since clean D1 legs are not always available. Documented approximation.
+    estimated_winrate = 0.65 is UNVALIDATED — needs backtest before trusting it.
+    """
+    killzone = get_active_killzone()
+    if killzone not in ("LONDON", "NY_AM"):
+        return None
+
+    m15 = tf_data.get("M15")
+    m5 = tf_data.get("M5")
+    h4 = tf_data.get("H4")
+    if m15 is None or m5 is None or h4 is None or m15.empty or m5.empty or h4.empty:
+        return None
+
+    h4_swings = find_swings(h4, lookback=cfg.SWING_LOOKBACK)
+    h4_bias = determine_bias(h4_swings)
+    expected = "BULLISH" if direction == "LONG" else "BEARISH"
+    if h4_bias != expected:
+        return None
+
+    asia_high, asia_low = get_asia_range(m15)
+    if asia_high is None or asia_low is None:
+        return None
+
+    # Confirmation candle = last CLOSED M15 candle (iloc[-2]; iloc[-1] may be forming).
+    if len(m15) < 2:
+        return None
+    confirm = m15.iloc[-2]
+
+    # SFP geometry: wick beyond Asia extreme, close back inside the range.
+    if direction == "LONG":
+        wick_beyond = confirm["low"] < asia_low
+        closed_inside = confirm["close"] > asia_low
+        sweep_wick = confirm["low"]
+    else:
+        wick_beyond = confirm["high"] > asia_high
+        closed_inside = confirm["close"] < asia_high
+        sweep_wick = confirm["high"]
+
+    if not (wick_beyond and closed_inside):
+        return None
+
+    # Volume confirmation on the reintegration (confirmation) candle.
+    avg_vol = _avg_volume(m15.iloc[:-1], cfg.SFP_VOLUME_LOOKBACK)
+    if avg_vol is None:
+        return None
+    if "volume" not in m15.columns or confirm["volume"] <= cfg.SFP_VOLUME_FACTOR * avg_vol:
+        return None
+
+    # OTE filter on the recent M15 leg (HTF proxy).
+    m15_swings = find_swings(m15, lookback=cfg.SWING_LOOKBACK)
+    current_price = m5.iloc[-1]["close"]
+    if direction == "LONG":
+        swing_h = max((s.price for s in m15_swings if s.type == "HIGH"), default=None)
+        if swing_h is None:
+            return None
+        fib = compute_fib_from_sweep(asia_low, swing_h, ote_low=cfg.OTE_LOW, ote_high=cfg.OTE_HIGH)
+    else:
+        swing_l = min((s.price for s in m15_swings if s.type == "LOW"), default=None)
+        if swing_l is None:
+            return None
+        from indicators.fibonacci import compute_fib_from_sweep_bearish
+        fib = compute_fib_from_sweep_bearish(asia_high, swing_l, ote_low=cfg.OTE_LOW, ote_high=cfg.OTE_HIGH)
+
+    if not fib.is_in_ote(sweep_wick):
+        return None
+
+    # Optional FVG confluence on M5
+    m5_fvgs = detect_fvg(m5.iloc[-20:], min_size_pips=cfg.FVG_MIN_SIZE_PIPS)
+    fvg_dir = "BULLISH" if direction == "LONG" else "BEARISH"
+    m5_fvgs = filter_unfilled_fvg(m5_fvgs, current_price)
+    recent_fvgs = get_recent_fvg(m5_fvgs, fvg_dir, n=2)
+
+    confluences = ["Bias_H4", "Asia_SFP", "Volume_Confirm", "OTE"]
+    if recent_fvgs:
+        confluences.append("FVG_M5")
+    score = min(10, len(confluences) * 2)
+    if score < cfg.MIN_SCORE_A:
+        return None
+
+    # Entry zone = the FVG if present, else the confirmation candle body back inside range.
+    if recent_fvgs:
+        best = recent_fvgs[-1]
+        entry_low, entry_high = best.bottom, best.top
+    else:
+        entry_low = min(confirm["open"], confirm["close"])
+        entry_high = max(confirm["open"], confirm["close"])
+
+    buf = cfg.SFP_SL_BUFFER_PIPS * 0.10
+    if direction == "LONG":
+        sl = sweep_wick - buf
+        tp = asia_high
+    else:
+        sl = sweep_wick + buf
+        tp = asia_low
+
+    mid = (entry_low + entry_high) / 2
+    rr = _safe_rr(tp, mid, sl)
+    if rr is None or rr < 2.0:
+        return None
+
+    return {
+        "tier": "A",
+        "direction": direction,
+        "pattern": "SFP Asia + OTE",
+        "killzone": killzone,
+        "entry_zone_low": round(entry_low, 2),
+        "entry_zone_high": round(entry_high, 2),
+        "stop_loss": round(sl, 2),
+        "take_profit": round(tp, 2),
+        "bias_h4": h4_bias,
+        "bias_h1": expected,
+        "confluences": confluences,
+        "confluence_score": score,
+        "estimated_winrate": 0.65,
     }
