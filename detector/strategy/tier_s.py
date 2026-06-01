@@ -119,7 +119,7 @@ def scan_golden_setup(
     # 3. M5: recent SSL sweep (LONG) or BSL sweep (SHORT)
     m5_swings = find_swings(m5, lookback=cfg.SWING_LOOKBACK)
     liq_levels = find_swing_liquidity(m5_swings, equal_threshold_pips=cfg.LIQUIDITY_EQUAL_THRESHOLD)
-    liq_levels = detect_sweeps(m5, liq_levels, lookback_candles=10)
+    liq_levels = detect_sweeps(m5, liq_levels, lookback_candles=20)
 
     sweep_type = "SSL" if direction == "LONG" else "BSL"
     recent_sweep = get_recent_sweep(liq_levels, sweep_type)  # type: ignore[arg-type]
@@ -148,9 +148,9 @@ def scan_golden_setup(
     m5_fvgs = filter_unfilled_fvg(m5_fvgs, current_price)
     recent_fvgs = get_recent_fvg(m5_fvgs, fvg_dir, n=3)
 
-    # 6. OB on M5/H1
+    # 6. OB on M5/H1 — mitigation scans the full M5 df to catch OBs hit hours ago
     m5_obs = detect_order_blocks(m5.iloc[-50:], lookback=cfg.OB_LOOKBACK)
-    m5_obs = update_mitigation(m5_obs, m5, lookback=cfg.OB_MITIGATION_LOOKBACK)
+    m5_obs = update_mitigation(m5_obs, m5, lookback=len(m5))
     ob_dir = "BULLISH" if direction == "LONG" else "BEARISH"
     nearest_ob = get_nearest_ob(m5_obs, current_price, ob_dir)
 
@@ -188,9 +188,13 @@ def scan_golden_setup(
     else:
         return None
 
-    # Price must be in the entry zone or in OTE — avoids signalling when price is far away
-    if not (entry_low <= current_price <= entry_high) and not in_ote:
-        log.debug("Price %.2f not in entry zone [%.2f-%.2f] and not in OTE — Tier S skip",
+    # OTE is mandatory for Tier S (Golden Setup requires 0.618–0.786 retracement).
+    if not in_ote:
+        log.debug("Price %.2f not in OTE — Tier S skip", current_price)
+        return None
+    # Price must also be inside the execution zone (FVG or OB).
+    if not (entry_low <= current_price <= entry_high):
+        log.debug("Price %.2f not in entry zone [%.2f-%.2f] — Tier S skip",
                   current_price, entry_low, entry_high)
         return None
 

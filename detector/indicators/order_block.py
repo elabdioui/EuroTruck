@@ -41,30 +41,32 @@ def detect_order_blocks(df: pd.DataFrame, lookback: int = 30) -> list[OrderBlock
         is_bearish = candle["close"] < candle["open"]
         is_bullish = candle["close"] > candle["open"]
 
-        # Bullish OB: bearish candle before strong bullish move
+        # Bullish OB: bearish candle (open > close) before strong bullish move.
+        # ICT zone = candle BODY only (open→close), not the full wick range.
         if is_bearish and i not in used_indices:
             next_slice = df.iloc[i + 1 : i + 5]
             displacement = next_slice["high"].max() - candle["high"]
             if displacement >= body:
                 obs.append(OrderBlock(
                     type="BULLISH",
-                    top=candle["high"],
-                    bottom=candle["low"],
-                    mid=(candle["high"] + candle["low"]) / 2,
+                    top=candle["open"],     # body top for a bearish candle
+                    bottom=candle["close"], # body bottom for a bearish candle
+                    mid=(candle["open"] + candle["close"]) / 2,
                     time=candle["time"],
                 ))
                 used_indices.add(i)
 
-        # Bearish OB: bullish candle before strong bearish move
+        # Bearish OB: bullish candle (close > open) before strong bearish move.
+        # ICT zone = candle BODY only.
         if is_bullish and i not in used_indices:
             next_slice = df.iloc[i + 1 : i + 5]
             displacement = candle["low"] - next_slice["low"].min()
             if displacement >= body:
                 obs.append(OrderBlock(
                     type="BEARISH",
-                    top=candle["high"],
-                    bottom=candle["low"],
-                    mid=(candle["high"] + candle["low"]) / 2,
+                    top=candle["close"],   # body top for a bullish candle
+                    bottom=candle["open"], # body bottom for a bullish candle
+                    mid=(candle["close"] + candle["open"]) / 2,
                     time=candle["time"],
                 ))
                 used_indices.add(i)

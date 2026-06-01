@@ -26,11 +26,11 @@ def find_swings(df: pd.DataFrame, lookback: int = 5) -> list[Swing]:
     """Pivot-based swing high/low detection."""
     swings: list[Swing] = []
     n = len(df)
+    # Extract arrays once — avoids re-allocating on every iteration
+    highs = df["high"].values
+    lows = df["low"].values
 
     for i in range(lookback, n - lookback):
-        highs = df["high"].values
-        lows = df["low"].values
-
         is_sh = all(highs[i] > highs[i - j] for j in range(1, lookback + 1)) and \
                 all(highs[i] > highs[i + j] for j in range(1, lookback + 1))
         is_sl = all(lows[i] < lows[i - j] for j in range(1, lookback + 1)) and \
@@ -77,32 +77,34 @@ def detect_structure_breaks(
     """
     BOS  = structure break in the direction of the prevailing trend.
     CHoCH = structure break AGAINST the prevailing trend (trend reversal signal).
+
+    Iterates over every consecutive candle pair in df so breaks that occurred
+    several candles ago are not silently dropped (old bug: only checked iloc[-2]/[-1]).
     """
     breaks: list[StructureBreak] = []
     if len(df) < 2 or not swings:
         return breaks
 
-    last_close = df.iloc[-1]["close"]
-    prev_close = df.iloc[-2]["close"]
-
     recent_highs = [s for s in swings if s.type == "HIGH"]
     recent_lows = [s for s in swings if s.type == "LOW"]
+    if not recent_highs and not recent_lows:
+        return breaks
 
-    if recent_highs:
-        prev_sh = recent_highs[-1].price
-        if prev_close <= prev_sh < last_close:  # close above swing high
-            break_dir: Literal["BULLISH", "BEARISH"] = "BULLISH"
-            btype: Literal["BOS", "CHoCH"] = (
-                "BOS" if current_bias == "BULLISH" else "CHoCH"
-            )
-            breaks.append(StructureBreak(btype, break_dir, prev_sh, df.iloc[-1]["time"]))
+    sh_level = recent_highs[-1].price if recent_highs else None
+    sl_level = recent_lows[-1].price if recent_lows else None
 
-    if recent_lows:
-        prev_sl = recent_lows[-1].price
-        if prev_close >= prev_sl > last_close:  # close below swing low
-            break_dir = "BEARISH"
+    for i in range(1, len(df)):
+        prev_close = df.iloc[i - 1]["close"]
+        curr_close = df.iloc[i]["close"]
+        candle_time = df.iloc[i]["time"]
+
+        if sh_level is not None and prev_close <= sh_level < curr_close:
+            btype: Literal["BOS", "CHoCH"] = "BOS" if current_bias == "BULLISH" else "CHoCH"
+            breaks.append(StructureBreak(btype, "BULLISH", sh_level, candle_time))
+
+        if sl_level is not None and prev_close >= sl_level > curr_close:
             btype = "BOS" if current_bias == "BEARISH" else "CHoCH"
-            breaks.append(StructureBreak(btype, break_dir, prev_sl, df.iloc[-1]["time"]))
+            breaks.append(StructureBreak(btype, "BEARISH", sl_level, candle_time))
 
     return breaks
 

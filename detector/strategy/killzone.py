@@ -5,10 +5,11 @@ import pytz
 
 from config import cfg
 
-KillzoneName = Literal["LONDON", "NY_AM", "NY_PM"]
+KillzoneName = Literal["ASIA", "LONDON", "NY_AM", "NY_PM"]
 
 # All times in UTC
 _KILLZONES_UTC: dict[KillzoneName, tuple[int, int]] = {
+    "ASIA":   (1, 5),     # 01:00–05:00 UTC  (Tokyo / Singapore overlap)
     "LONDON": (7, 10),    # 07:00–10:00 UTC
     "NY_AM": (13, 16),    # 13:00–16:00 UTC
     "NY_PM": (18, 20),    # 18:00–20:00 UTC

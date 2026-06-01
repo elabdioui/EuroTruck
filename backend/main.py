@@ -12,6 +12,7 @@ from core.config import settings
 from db.database import create_db
 from api.signal import router as signal_router
 from api.health import router as health_router
+from api.logs import router as logs_router
 from services.news.aggregator import refresh_news
 from scheduler.news_refresh import start_news_scheduler
 
@@ -46,6 +47,7 @@ app = FastAPI(
 
 app.include_router(signal_router)
 app.include_router(health_router)
+app.include_router(logs_router)
 
 
 if __name__ == "__main__":

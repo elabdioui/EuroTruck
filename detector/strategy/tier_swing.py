@@ -16,7 +16,7 @@ estimated_winrate = 0.58 is UNVALIDATED — needs backtest.
 import logging
 import pandas as pd
 
-from indicators import find_swings, determine_bias
+from indicators import find_swings
 from config import cfg
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def _find_sr_levels(df: pd.DataFrame, tol_pips: float, min_rejections: int) -> l
     levels: list[float] = []
     cluster: list[float] = [prices[0]]
     for p in prices[1:]:
-        if abs(p - cluster[-1]) <= tol:
+        if abs(p - cluster[0]) <= tol:  # anchor to first element — prevents cluster drift
             cluster.append(p)
         else:
             if len(cluster) >= min_rejections:

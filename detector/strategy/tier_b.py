@@ -49,7 +49,7 @@ def scan_breaker_fib(
     current_price = m5.iloc[-1]["close"]
 
     m5_obs = detect_order_blocks(m5, lookback=cfg.OB_LOOKBACK)
-    m5_obs = update_mitigation(m5_obs, m5)
+    m5_obs = update_mitigation(m5_obs, m5, lookback=len(m5))
 
     # Breaker = mitigated OB that has flipped.
     # For a LONG: a former BEARISH OB broken to the upside acts as bullish support.

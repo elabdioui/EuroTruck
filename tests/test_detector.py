@@ -22,10 +22,12 @@ def _make_df(rows: list[dict]) -> pd.DataFrame:
 
 
 def test_bullish_fvg_detected():
+    # 4 candles required: c1/c2/c3 form the FVG, c4 is the current forming candle (excluded).
     df = _make_df([
         {"open": 100, "high": 101, "low": 99,  "close": 100},  # c1
         {"open": 101, "high": 105, "low": 100, "close": 104},  # c2 impulse up
         {"open": 104, "high": 106, "low": 102, "close": 105},  # c3 — low 102 > c1 high 101 ✓
+        {"open": 105, "high": 107, "low": 104, "close": 106},  # c4 forming (excluded)
     ])
     fvgs = detect_fvg(df, min_size_pips=1.0)
     assert len(fvgs) == 1
@@ -35,10 +37,12 @@ def test_bullish_fvg_detected():
 
 
 def test_bearish_fvg_detected():
+    # 4 candles required: c1/c2/c3 form the FVG, c4 is the current forming candle (excluded).
     df = _make_df([
         {"open": 105, "high": 106, "low": 104, "close": 105},  # c1
         {"open": 104, "high": 104, "low": 100, "close": 101},  # c2 impulse down
         {"open": 101, "high": 103, "low": 100, "close": 100},  # c3 — high 103 < c1 low 104 ✓
+        {"open": 100, "high": 101, "low": 99,  "close": 100},  # c4 forming (excluded)
     ])
     fvgs = detect_fvg(df, min_size_pips=1.0)
     assert len(fvgs) == 1

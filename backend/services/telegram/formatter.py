@@ -18,6 +18,15 @@ def _fmt_time(ts_str: str) -> str:
         return ts_str
 
 
+def _signal_name(signal: dict) -> str:
+    tier = signal.get("tier", "?")
+    direction = signal.get("direction", "?")
+    pattern = signal.get("pattern", "?")
+    killzone = signal.get("killzone", "?")
+    pattern_slug = pattern.replace(" ", "").replace("+", "_")
+    return f"T{tier}_{direction}_{killzone}_{pattern_slug}"
+
+
 def format_alert(signal: dict, verdict: dict | None, provider: str = "") -> str:
     tier = signal.get("tier", "?")
     direction = signal.get("direction", "?")
@@ -38,11 +47,13 @@ def format_alert(signal: dict, verdict: dict | None, provider: str = "") -> str:
     time_str = _fmt_time(signal.get("timestamp", ""))
 
     confluences_str = " | ".join(confluences) if confluences else "—"
+    name = _signal_name(signal)
 
     header = f"{tier_emoji} TIER {tier} — {symbol} {direction}"
     lines = [
         header,
         "━━━━━━━━━━━━━━━━━━━━",
+        f"🏷 Signal : #{name}",
         f"🕐 {time_str} ({kz_label})",
         f"📊 Pattern : {pattern}",
         f"📍 Zone entrée : {entry_low:.2f} — {entry_high:.2f}",

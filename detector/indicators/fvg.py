@@ -25,14 +25,16 @@ def detect_fvg(df: pd.DataFrame, min_size_pips: float = 3.0) -> list[FVG]:
     3-candle pattern: gap between candle[i-1] and candle[i+1].
     XAUUSD pip = 0.10 (1 point = 0.01, 1 pip = 0.10)
     """
-    if len(df) < 3:
+    if len(df) < 4:
         return []
 
     pip_unit = 0.10
     min_size = min_size_pips * pip_unit
     fvgs: list[FVG] = []
 
-    for i in range(1, len(df) - 1):
+    # Upper bound is len(df) - 2 so c3 = df.iloc[i+1] is always the last CLOSED
+    # candle, never the still-forming current candle (df.iloc[-1]).
+    for i in range(1, len(df) - 2):
         c1 = df.iloc[i - 1]
         c3 = df.iloc[i + 1]
         c2 = df.iloc[i]
@@ -70,13 +72,15 @@ def filter_unfilled_fvg(fvgs: list[FVG], current_price: float) -> list[FVG]:
     """Mark FVGs that price has entered as filled."""
     result = []
     for fvg in fvgs:
-        if fvg.type == "BULLISH" and current_price <= fvg.bottom:
+        if fvg.type == "BULLISH" and current_price < fvg.bottom:
+            # Strict <: price exactly AT the bottom is still a valid entry edge
             fvg.filled = True
-        elif fvg.type == "BULLISH" and fvg.bottom < current_price < fvg.top:
+        elif fvg.type == "BULLISH" and fvg.bottom <= current_price < fvg.top:
             fvg.partially_filled = True
-        elif fvg.type == "BEARISH" and current_price >= fvg.top:
+        elif fvg.type == "BEARISH" and current_price > fvg.top:
+            # Strict >: price exactly AT the top is still a valid entry edge
             fvg.filled = True
-        elif fvg.type == "BEARISH" and fvg.bottom < current_price < fvg.top:
+        elif fvg.type == "BEARISH" and fvg.bottom < current_price <= fvg.top:
             fvg.partially_filled = True
         result.append(fvg)
     return result

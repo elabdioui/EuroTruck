@@ -96,9 +96,10 @@ def scan_ob_retest(
 
     current_price = m5.iloc[-1]["close"]
 
-    # H1 OB near current price
+    # H1 OB near current price — mitigation scans full H1 df to avoid treating
+    # yesterday's invalidated OBs as fresh (default lookback=5 only covers 5h).
     h1_obs = detect_order_blocks(h1, lookback=cfg.OB_LOOKBACK)
-    h1_obs = update_mitigation(h1_obs, h1)
+    h1_obs = update_mitigation(h1_obs, h1, lookback=len(h1))
     ob_dir = "BULLISH" if direction == "LONG" else "BEARISH"
     ob = get_nearest_ob(h1_obs, current_price, ob_dir)
     if ob is None:
@@ -125,6 +126,7 @@ def scan_ob_retest(
         return None
 
     h1_swings = find_swings(h1, lookback=cfg.SWING_LOOKBACK)
+    h1_bias = determine_bias(h1_swings)
     if direction == "LONG":
         target_tp = max((s.price for s in h1_swings if s.type == "HIGH"), default=current_price * 1.004)
         sl = ob.bottom - 3 * 0.10
@@ -147,7 +149,7 @@ def scan_ob_retest(
         "stop_loss": round(sl, 2),
         "take_profit": round(target_tp, 2),
         "bias_h4": h4_bias,
-        "bias_h1": expected,
+        "bias_h1": h1_bias,
         "confluences": confluences,
         "confluence_score": score,
         "estimated_winrate": 0.62,
@@ -371,14 +373,14 @@ def scan_sfp_asia(
     return {
         "tier": "A",
         "direction": direction,
-        "pattern": "SFP Asia + OTE",
+        "pattern": "SFP + OTE Asia",
         "killzone": killzone,
         "entry_zone_low": round(entry_low, 2),
         "entry_zone_high": round(entry_high, 2),
         "stop_loss": round(sl, 2),
         "take_profit": round(tp, 2),
         "bias_h4": h4_bias,
-        "bias_h1": expected,
+        "bias_h1": h4_bias,   # SFP Asia uses H4+M15 only — no H1 bias computed
         "confluences": confluences,
         "confluence_score": score,
         "estimated_winrate": 0.65,
