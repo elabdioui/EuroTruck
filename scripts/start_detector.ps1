@@ -1,12 +1,8 @@
-# start_detector.ps1 — Lance le détecteur XAUUSD (MT5 requis)
-# Usage: .\scripts\start_detector.ps1
-# Pour un service Windows, utiliser install_nssm.ps1
-
+$script = @'
 $Root = Split-Path -Parent $PSScriptRoot
 $EnvFile = Join-Path $Root ".env"
 $DetectorDir = Join-Path $Root "detector"
 
-# Charger les variables d'environnement depuis .env racine
 if (Test-Path $EnvFile) {
     Get-Content $EnvFile | ForEach-Object {
         if ($_ -match "^\s*([^#][^=]+)=(.*)$") {
@@ -16,4 +12,6 @@ if (Test-Path $EnvFile) {
 }
 
 Set-Location $DetectorDir
-python main.py
+& "C:\Users\BotVm\AppData\Local\Programs\Python\Python311\python.exe" main.py
+'@
+$script | Out-File -FilePath "C:\Users\BotVm\Desktop\xauusd\scripts\start_detector.ps1" -Encoding utf8

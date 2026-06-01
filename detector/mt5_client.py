@@ -18,15 +18,14 @@ _TIMEFRAME_MAP = {
 
 
 def connect() -> bool:
-    if not mt5.initialize(
-        login=cfg.MT5_LOGIN,
-        password=cfg.MT5_PASSWORD,
-        server=cfg.MT5_SERVER,
-    ):
+    if not mt5.initialize(login=cfg.MT5_LOGIN, password=cfg.MT5_PASSWORD, server=cfg.MT5_SERVER):
         log.error("MT5 init failed: %s", mt5.last_error())
         return False
-    info = mt5.terminal_info()
-    log.info("MT5 connected — build %s, connected=%s", info.build, info.connected)
+    if not mt5.symbol_select(cfg.SYMBOL, True):
+        log.error("symbol_select(%s) failed: %s", cfg.SYMBOL, mt5.last_error())
+        return False
+    acc = mt5.account_info()
+    log.info("MT5 connected — account=%s", acc.login if acc else None)
     return True
 
 
@@ -36,7 +35,7 @@ def disconnect() -> None:
 
 def is_connected() -> bool:
     info = mt5.terminal_info()
-    return info is not None and info.connected
+    return info is not None and info.connected and mt5.account_info() is not None
 
 
 def get_ohlc(symbol: str, timeframe: str, count: int) -> pd.DataFrame:
