@@ -17,6 +17,7 @@ import logging
 import pandas as pd
 
 from indicators import find_swings
+from strategy.scoring import _score_confluences, _safe_rr
 from config import cfg
 
 log = logging.getLogger(__name__)
@@ -55,13 +56,6 @@ def _volume_ma(df: pd.DataFrame, period: int) -> float | None:
     if window.empty:
         return None
     return float(window.mean())
-
-
-def _safe_rr(target: float, entry_mid: float, sl: float) -> float | None:
-    denom = abs(entry_mid - sl)
-    if denom < 0.01:
-        return None
-    return abs(target - entry_mid) / denom
 
 
 def scan_break_retest(
@@ -145,13 +139,13 @@ def scan_break_retest(
 
     entry_low = min(conf["low"], broken_level)
     entry_high = max(conf["high"], broken_level)
-    mid = current_price
-    rr = _safe_rr(tp, mid, sl)
+    entry_ref = entry_high if direction == "LONG" else entry_low
+    rr = _safe_rr(tp, entry_ref, sl)
     if rr is None or rr < cfg.SWING_RR_MIN:
         return None
 
     confluences = ["SR_Level", "Breakout_Volume", "Polarity_Retest", "Rejection_Candle"]
-    score = min(10, len(confluences) * 2)
+    score = _score_confluences(confluences)
 
     return {
         "tier": "SWING",

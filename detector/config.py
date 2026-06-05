@@ -47,6 +47,7 @@ class Config:
     MIN_SCORE_B: int = 4   # Tier B: baseline
     MIN_RR: float = 1.5    # minimum risk/reward ratio (worst-case fill)
     MIN_RR_A: float = 2.0  # Tier A SFP minimum RR (scan_sfp_asia)
+    MIN_RR_S: float = 2.0  # Tier S Golden Setup minimum RR (worst-case edge)
     SL_BUFFER: float = 0.30  # distance beyond zone edge for stop-loss (3 pips × 0.10)
     REGIME_ATR_PERIOD: int = 14          # ATR look-back for regime detection
     REGIME_VOL_MULTIPLIER: float = 2.0   # ATR ratio above which regime = high_vol
@@ -72,6 +73,11 @@ class Config:
         "CHoCH_M5":     2,
         "CHoCH_M1":     2,
         "FVG_M1":       1,
+        # Tier SWING
+        "SR_Level":         2,
+        "Breakout_Volume":  2,
+        "Polarity_Retest":  2,
+        "Rejection_Candle": 2,
     }
     
     # SFP Asia + OTE (Tier A new)

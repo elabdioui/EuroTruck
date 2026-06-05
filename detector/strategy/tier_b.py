@@ -10,18 +10,10 @@ from indicators import (
     find_liquidity_target, find_liquidity_pools, detect_sweeps, detect_regime,
 )
 from strategy.killzone import get_active_killzone
-from strategy.scoring import _score_confluences
+from strategy.scoring import _score_confluences, _safe_rr
 from config import cfg
 
 log = logging.getLogger(__name__)
-
-
-def _safe_rr(target: float, entry_mid: float, sl: float) -> float | None:
-    """Risk-reward with a divide-by-zero guard. Returns None if SL == entry."""
-    denom = abs(entry_mid - sl)
-    if denom < 0.01:
-        return None
-    return abs(target - entry_mid) / denom
 
 
 def scan_breaker_fib(

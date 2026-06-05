@@ -1,5 +1,13 @@
-"""Shared confluence scoring used by all tiers."""
+"""Shared helpers used by all tiers: confluence scoring and RR computation."""
 from config import cfg
+
+
+def _safe_rr(target: float, entry_ref: float, sl: float) -> float | None:
+    """Risk-reward ratio with divide-by-zero guard. Returns None when SL == entry."""
+    denom = abs(entry_ref - sl)
+    if denom < 0.01:
+        return None
+    return abs(target - entry_ref) / denom
 
 
 def _score_confluences(confluences: list[str]) -> int:

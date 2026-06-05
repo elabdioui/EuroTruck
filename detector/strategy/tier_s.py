@@ -25,7 +25,7 @@ from indicators import (
     compute_fib_from_sweep,
 )
 from strategy.killzone import get_active_killzone
-from strategy.scoring import _score_confluences
+from strategy.scoring import _score_confluences, _safe_rr
 from config import cfg
 
 log = logging.getLogger(__name__)
@@ -216,15 +216,10 @@ def scan_golden_setup(
 
     sl, tp = _compute_sl_tp(direction, entry_low, entry_high, sweep_extreme, target_tp)
 
-    # BUGFIX: guard against division by zero when entry mid == sl.
-    entry_mid = (entry_low + entry_high) / 2
-    denom = abs(entry_mid - sl)
-    if denom < 0.01:
-        log.debug("Entry mid too close to SL — Tier S skip")
-        return None
-    rr = abs(tp - entry_mid) / denom
-    if rr < 2.0:
-        log.debug("RR %.1f < 2.0 — Tier S skip", rr)
+    entry_ref = entry_high if direction == "LONG" else entry_low
+    rr = _safe_rr(tp, entry_ref, sl)
+    if rr is None or rr < cfg.MIN_RR_S:
+        log.debug("Edge RR %.2f < MIN_RR_S %.1f — Tier S skip", rr or 0, cfg.MIN_RR_S)
         return None
 
     return {
