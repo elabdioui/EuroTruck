@@ -4,9 +4,10 @@ import pandas as pd
 
 from indicators import (
     detect_fvg, filter_unfilled_fvg, get_recent_fvg,
-    detect_order_blocks, update_mitigation, get_nearest_ob,
+    detect_order_blocks, update_mitigation,
     find_swings, determine_bias, detect_structure_breaks,
-    compute_fib_from_sweep,
+    compute_fib_from_sweep, compute_fib_from_sweep_bearish,
+    find_liquidity_target, find_liquidity_pools, detect_sweeps, detect_regime,
 )
 from strategy.killzone import get_active_killzone
 from config import cfg
@@ -22,14 +23,33 @@ def _safe_rr(target: float, entry_mid: float, sl: float) -> float | None:
     return abs(target - entry_mid) / denom
 
 
+def _score_confluences(confluences: list[str]) -> int:
+    """Weighted confluence score capped at 10.
+
+    Each label is matched against cfg.CONFLUENCE_WEIGHTS by exact key first,
+    then by prefix (so 'OTE_0.618' matches the 'OTE' key).
+    Unknown labels contribute 1 point each as a safe default.
+    """
+    weights = cfg.CONFLUENCE_WEIGHTS
+    total = 0
+    for label in confluences:
+        if label in weights:
+            total += weights[label]
+        else:
+            prefix_match = next((w for w in weights if label.startswith(w)), None)
+            total += weights[prefix_match] if prefix_match else 1
+    return min(10, total)
+
+
 def scan_breaker_fib(
     tf_data: dict[str, pd.DataFrame],
     direction: str = "LONG",
 ) -> dict | None:
     """
     Breaker Block + Fib confluence:
-    - Bullish OB on M5 that has been violated → becomes bearish breaker
-    - Price retraces into breaker zone + OTE
+    - LONG: former BEARISH OB broken upward → acts as bullish support breaker
+    - SHORT: former BULLISH OB broken downward → acts as bearish resistance breaker
+    - Price retraces into the breaker zone and sits within the OTE Fib range
     """
     killzone = get_active_killzone()
     if killzone is None:
@@ -38,6 +58,9 @@ def scan_breaker_fib(
     m5 = tf_data.get("M5")
     h4 = tf_data.get("H4")
     if m5 is None or h4 is None or m5.empty or h4.empty:
+        return None
+
+    if detect_regime(m5, cfg.REGIME_ATR_PERIOD, cfg.REGIME_VOL_MULTIPLIER, cfg.REGIME_RANGE_MULTIPLIER) != "trend":
         return None
 
     h4_swings = find_swings(h4, lookback=cfg.SWING_LOOKBACK)
@@ -59,43 +82,74 @@ def scan_breaker_fib(
     if not breakers:
         return None
 
+    if direction == "LONG":
+        breakers = [o for o in breakers if o.top < current_price]
+    else:
+        breakers = [o for o in breakers if o.bottom > current_price]
+    if not breakers:
+        return None
+
     nearest_breaker = min(breakers, key=lambda o: abs(o.mid - current_price))
+
+    # ICT sequence: liquidity sweep must precede the OB-to-breaker flip.
+    # LONG needs a prior SSL sweep; SHORT needs a prior BSL sweep.
+    sweep_pool_type = "SSL" if direction == "LONG" else "BSL"
+    pools = find_liquidity_pools(m5, swing_lookback=cfg.SWING_LOOKBACK,
+                                 tolerance_pips=cfg.LIQUIDITY_EQUAL_THRESHOLD)
+    candidate_pools = [p for p in pools if p.type == sweep_pool_type]
+    swept_pools = detect_sweeps(m5, candidate_pools, lookback_candles=len(m5))
+    # Require a sweep that completed before the breaker formation.
+    prior_sweep = next(
+        (p for p in swept_pools
+         if p.swept
+         and nearest_breaker.breaker_time is not None
+         and p.sweep_time is not None
+         and p.sweep_time < nearest_breaker.breaker_time),
+        None,
+    )
+    if prior_sweep is None:
+        return None
 
     m5_swings = find_swings(m5, lookback=cfg.SWING_LOOKBACK)
     if direction == "LONG":
         swing_h = max((s.price for s in m5_swings if s.type == "HIGH"), default=None)
         if swing_h is None:
             return None
+        if swing_h <= nearest_breaker.bottom:
+            return None
         fib = compute_fib_from_sweep(nearest_breaker.bottom, swing_h)
     else:
         swing_l = min((s.price for s in m5_swings if s.type == "LOW"), default=None)
         if swing_l is None:
             return None
-        from indicators.fibonacci import compute_fib_from_sweep_bearish
+        if swing_l >= nearest_breaker.top:
+            return None
         fib = compute_fib_from_sweep_bearish(nearest_breaker.top, swing_l)
 
     in_ote = fib.is_in_ote(current_price)
     if not in_ote:
         return None
 
-    confluences = ["Bias_H4", "Breaker_M5"]
-    if in_ote:
-        confluences.append(f"OTE_{cfg.OTE_LOW}")
+    confluences = ["Bias_H4", "Breaker_M5", "Sweep", f"OTE_{cfg.OTE_LOW}"]
 
-    score = min(10, len(confluences) * 2)
+    score = _score_confluences(confluences)
     if score < cfg.MIN_SCORE_B:
         return None
 
     if direction == "LONG":
-        sl = nearest_breaker.bottom - 3 * 0.10
-        tp = max((s.price for s in m5_swings if s.type == "HIGH"), default=current_price * 1.003)
+        sl = nearest_breaker.bottom - cfg.SL_BUFFER
+        tp = find_liquidity_target(m5, direction, current_price, swing_lookback=cfg.SWING_LOOKBACK)
+        if tp is None:
+            tp = max((s.price for s in m5_swings if s.type == "HIGH"), default=current_price * 1.003)
     else:
-        sl = nearest_breaker.top + 3 * 0.10
-        tp = min((s.price for s in m5_swings if s.type == "LOW"), default=current_price * 0.997)
+        sl = nearest_breaker.top + cfg.SL_BUFFER
+        tp = find_liquidity_target(m5, direction, current_price, swing_lookback=cfg.SWING_LOOKBACK)
+        if tp is None:
+            tp = min((s.price for s in m5_swings if s.type == "LOW"), default=current_price * 0.997)
 
-    mid = (nearest_breaker.top + nearest_breaker.bottom) / 2
-    rr = _safe_rr(tp, mid, sl)
-    if rr is None or rr < 1.5:
+    entry_ref = nearest_breaker.top if direction == "LONG" else nearest_breaker.bottom
+    rr = _safe_rr(tp, entry_ref, sl)
+    if rr is None or rr < cfg.MIN_RR:
         return None
 
     return {
@@ -111,7 +165,7 @@ def scan_breaker_fib(
         "bias_h1": expected,
         "confluences": confluences,
         "confluence_score": score,
-        "estimated_winrate": 0.52,
+        "estimated_winrate": 0.52,  # static placeholder — not a measured statistic
     }
 
 
@@ -122,7 +176,8 @@ def scan_bos_fvg(
     """
     BOS + FVG Retest:
     - BOS confirms direction on M5
-    - FVG left by the BOS impulse
+    - FVG left by the BOS impulse (only FVGs whose middle candle is on/after
+      the most recent BOS candle are considered; older FVGs are discarded)
     - Price retests the FVG
     """
     killzone = get_active_killzone()
@@ -132,6 +187,9 @@ def scan_bos_fvg(
     m5 = tf_data.get("M5")
     h4 = tf_data.get("H4")
     if m5 is None or h4 is None or m5.empty or h4.empty:
+        return None
+
+    if detect_regime(m5, cfg.REGIME_ATR_PERIOD, cfg.REGIME_VOL_MULTIPLIER, cfg.REGIME_RANGE_MULTIPLIER) != "trend":
         return None
 
     h4_swings = find_swings(h4, lookback=cfg.SWING_LOOKBACK)
@@ -152,33 +210,59 @@ def scan_bos_fvg(
     if not bos_list:
         return None
 
+    latest_bos = bos_list[-1]
+
+    # ICT sequence: SSL sweep (LONG) or BSL sweep (SHORT) must precede the BOS.
+    sweep_pool_type = "SSL" if direction == "LONG" else "BSL"
+    pools = find_liquidity_pools(m5, swing_lookback=cfg.SWING_LOOKBACK,
+                                 tolerance_pips=cfg.LIQUIDITY_EQUAL_THRESHOLD)
+    candidate_pools = [p for p in pools if p.type == sweep_pool_type]
+    swept_pools = detect_sweeps(m5, candidate_pools, lookback_candles=len(m5))
+    prior_sweep = next(
+        (p for p in swept_pools
+         if p.swept and p.sweep_time is not None and p.sweep_time < latest_bos.time),
+        None,
+    )
+    if prior_sweep is None:
+        return None
+
     current_price = m5.iloc[-1]["close"]
     m5_fvgs = detect_fvg(m5.iloc[-30:], min_size_pips=cfg.FVG_MIN_SIZE_PIPS)
     fvg_dir = "BULLISH" if direction == "LONG" else "BEARISH"
     m5_fvgs = filter_unfilled_fvg(m5_fvgs, current_price)
     recent_fvgs = get_recent_fvg(m5_fvgs, fvg_dir, n=2)
 
-    if not recent_fvgs:
+    # Keep only FVGs formed on/after the BOS impulse candle.
+    # Use time comparison so the slice-relative candle_idx of detect_fvg
+    # does not need to be remapped to the full-df absolute position.
+    post_bos_fvgs = [f for f in recent_fvgs if f.time >= latest_bos.time]
+    if not post_bos_fvgs:
         return None
 
-    best_fvg = recent_fvgs[-1]
+    best_fvg = post_bos_fvgs[-1]
     in_fvg = best_fvg.bottom <= current_price <= best_fvg.top
     if not in_fvg:
         return None
 
-    confluences = ["Bias_H4", "BOS_M5", "FVG_M5"]
-    score = 6
+    confluences = ["Bias_H4", "BOS_M5", "FVG_M5", "Sweep"]
+    score = _score_confluences(confluences)
+    if score < cfg.MIN_SCORE_B:
+        return None
 
     if direction == "LONG":
-        sl = best_fvg.bottom - 3 * 0.10
-        tp = max((s.price for s in m5_swings if s.type == "HIGH"), default=current_price * 1.003)
+        sl = best_fvg.bottom - cfg.SL_BUFFER
+        tp = find_liquidity_target(m5, direction, current_price, swing_lookback=cfg.SWING_LOOKBACK)
+        if tp is None:
+            tp = max((s.price for s in m5_swings if s.type == "HIGH"), default=current_price * 1.003)
     else:
-        sl = best_fvg.top + 3 * 0.10
-        tp = min((s.price for s in m5_swings if s.type == "LOW"), default=current_price * 0.997)
+        sl = best_fvg.top + cfg.SL_BUFFER
+        tp = find_liquidity_target(m5, direction, current_price, swing_lookback=cfg.SWING_LOOKBACK)
+        if tp is None:
+            tp = min((s.price for s in m5_swings if s.type == "LOW"), default=current_price * 0.997)
 
-    mid = (best_fvg.top + best_fvg.bottom) / 2
-    rr = _safe_rr(tp, mid, sl)
-    if rr is None or rr < 1.5:
+    entry_ref = best_fvg.top if direction == "LONG" else best_fvg.bottom
+    rr = _safe_rr(tp, entry_ref, sl)
+    if rr is None or rr < cfg.MIN_RR:
         return None
 
     return {
@@ -194,5 +278,5 @@ def scan_bos_fvg(
         "bias_h1": expected,
         "confluences": confluences,
         "confluence_score": score,
-        "estimated_winrate": 0.50,
+        "estimated_winrate": 0.50,  # static placeholder — not a measured statistic
     }

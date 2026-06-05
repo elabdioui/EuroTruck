@@ -45,6 +45,19 @@ class Config:
     MIN_SCORE_S: int = 7   # Tier S: requires strong confluences
     MIN_SCORE_A: int = 5   # Tier A: moderate
     MIN_SCORE_B: int = 4   # Tier B: baseline
+    MIN_RR: float = 1.5    # minimum risk/reward ratio (worst-case fill)
+    SL_BUFFER: float = 0.30  # distance beyond zone edge for stop-loss (3 pips × 0.10)
+    REGIME_ATR_PERIOD: int = 14          # ATR look-back for regime detection
+    REGIME_VOL_MULTIPLIER: float = 2.0   # ATR ratio above which regime = high_vol
+    REGIME_RANGE_MULTIPLIER: float = 0.5 # ATR ratio below which regime = range
+    CONFLUENCE_WEIGHTS: dict[str, int] = {
+        "Bias_H4":    2,
+        "BOS_M5":     2,
+        "FVG_M5":     1,
+        "Breaker_M5": 2,
+        "OTE":        2,
+        "Sweep":      3,
+    }
     
     # SFP Asia + OTE (Tier A new)
     SFP_VOLUME_LOOKBACK: int = 10       # candles for the avg-volume baseline

@@ -20,6 +20,7 @@ class StructureBreak:
     direction: Literal["BULLISH", "BEARISH"]  # direction of the break
     broken_level: float
     time: datetime
+    candle_idx: int = 0  # positional index of the breaking candle within the passed df
 
 
 def find_swings(df: pd.DataFrame, lookback: int = 5) -> list[Swing]:
@@ -75,39 +76,54 @@ def detect_structure_breaks(
     current_bias: Literal["BULLISH", "BEARISH", "NEUTRAL"],
 ) -> list[StructureBreak]:
     """
-    BOS  = structure break in the direction of the prevailing trend.
-    CHoCH = structure break AGAINST the prevailing trend (trend reversal signal).
+    BOS  = cassure de structure dans le sens du trend dominant.
+    CHoCH = cassure de structure CONTRE le trend dominant.
 
-    Iterates over every consecutive candle pair in df so breaks that occurred
-    several candles ago are not silently dropped (old bug: only checked iloc[-2]/[-1]).
+    Pour chaque bougie, on compare son close au dernier swing High/Low
+    ANTÉRIEUR à cette bougie (référence mobile), et non à un niveau figé.
+    Après une cassure, le niveau de référence avance pour éviter de
+    réenregistrer la même cassure plusieurs fois.
     """
     breaks: list[StructureBreak] = []
     if len(df) < 2 or not swings:
         return breaks
 
-    recent_highs = [s for s in swings if s.type == "HIGH"]
-    recent_lows = [s for s in swings if s.type == "LOW"]
-    if not recent_highs and not recent_lows:
+    highs = [s for s in swings if s.type == "HIGH"]
+    lows = [s for s in swings if s.type == "LOW"]
+    if not highs and not lows:
         return breaks
 
-    sh_level = recent_highs[-1].price if recent_highs else None
-    sl_level = recent_lows[-1].price if recent_lows else None
+    hi_idx = 0   # pointeur sur le prochain swing High candidat
+    lo_idx = 0
+    active_sh: float | None = None   # dernier swing High antérieur à la bougie i
+    active_sl: float | None = None
 
     for i in range(1, len(df)):
         prev_close = df.iloc[i - 1]["close"]
         curr_close = df.iloc[i]["close"]
         candle_time = df.iloc[i]["time"]
 
-        if sh_level is not None and prev_close <= sh_level < curr_close:
-            btype: Literal["BOS", "CHoCH"] = "BOS" if current_bias == "BULLISH" else "CHoCH"
-            breaks.append(StructureBreak(btype, "BULLISH", sh_level, candle_time))
+        # Avancer les références : tout swing dont l'index < i devient "actif"
+        while hi_idx < len(highs) and highs[hi_idx].index < i:
+            active_sh = highs[hi_idx].price
+            hi_idx += 1
+        while lo_idx < len(lows) and lows[lo_idx].index < i:
+            active_sl = lows[lo_idx].price
+            lo_idx += 1
 
-        if sl_level is not None and prev_close >= sl_level > curr_close:
+        # Cassure haussière du dernier swing High antérieur
+        if active_sh is not None and prev_close <= active_sh < curr_close:
+            btype: Literal["BOS", "CHoCH"] = "BOS" if current_bias == "BULLISH" else "CHoCH"
+            breaks.append(StructureBreak(btype, "BULLISH", active_sh, candle_time, candle_idx=i))
+            active_sh = None   # consommé — attend le prochain swing High pour rearmer
+
+        # Cassure baissière du dernier swing Low antérieur
+        if active_sl is not None and prev_close >= active_sl > curr_close:
             btype = "BOS" if current_bias == "BEARISH" else "CHoCH"
-            breaks.append(StructureBreak(btype, "BEARISH", sl_level, candle_time))
+            breaks.append(StructureBreak(btype, "BEARISH", active_sl, candle_time, candle_idx=i))
+            active_sl = None
 
     return breaks
-
 
 def get_recent_choch(
     df: pd.DataFrame,

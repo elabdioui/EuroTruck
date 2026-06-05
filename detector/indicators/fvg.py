@@ -12,6 +12,7 @@ class FVG:
     mid: float
     size: float
     time: datetime
+    candle_idx: int = 0  # positional index of the middle candle within the passed df
     filled: bool = False
     partially_filled: bool = False
 
@@ -50,6 +51,7 @@ def detect_fvg(df: pd.DataFrame, min_size_pips: float = 3.0) -> list[FVG]:
                     mid=(c3["low"] + c1["high"]) / 2,
                     size=gap,
                     time=c2["time"],
+                    candle_idx=i,
                 ))
 
         # Bearish FVG: gap between c1.low and c3.high (c2 is the impulse down)
@@ -63,28 +65,33 @@ def detect_fvg(df: pd.DataFrame, min_size_pips: float = 3.0) -> list[FVG]:
                     mid=(c1["low"] + c3["high"]) / 2,
                     size=gap,
                     time=c2["time"],
+                    candle_idx=i,
                 ))
 
     return fvgs
 
 
 def filter_unfilled_fvg(fvgs: list[FVG], current_price: float) -> list[FVG]:
-    """Mark FVGs that price has entered as filled."""
+    """
+    Marque l'état de remplissage selon le SKILL :
+    - filled : prix a dépassé le mid (mitigation >= 50%) → zone invalidée pour entrée
+    - partially_filled : prix entré dans la zone mais < 50%
+    Pour un FVG bullish (support sous le prix), le remplissage vient par le bas.
+    """
     result = []
     for fvg in fvgs:
-        if fvg.type == "BULLISH" and current_price < fvg.bottom:
-            # Strict <: price exactly AT the bottom is still a valid entry edge
-            fvg.filled = True
-        elif fvg.type == "BULLISH" and fvg.bottom <= current_price < fvg.top:
-            fvg.partially_filled = True
-        elif fvg.type == "BEARISH" and current_price > fvg.top:
-            # Strict >: price exactly AT the top is still a valid entry edge
-            fvg.filled = True
-        elif fvg.type == "BEARISH" and fvg.bottom < current_price <= fvg.top:
-            fvg.partially_filled = True
+        if fvg.type == "BULLISH":
+            if current_price <= fvg.mid:
+                fvg.filled = True            # mitigé à 50%+ (ou traversé)
+            elif current_price < fvg.top:
+                fvg.partially_filled = True  # entré mais < 50%
+        else:  # BEARISH (résistance au-dessus du prix)
+            if current_price >= fvg.mid:
+                fvg.filled = True
+            elif current_price > fvg.bottom:
+                fvg.partially_filled = True
         result.append(fvg)
     return result
-
 
 def get_recent_fvg(fvgs: list[FVG], direction: str, n: int = 3) -> list[FVG]:
     """Return the N most recent unfilled FVGs matching the direction."""
