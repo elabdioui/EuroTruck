@@ -46,17 +46,32 @@ class Config:
     MIN_SCORE_A: int = 5   # Tier A: moderate
     MIN_SCORE_B: int = 4   # Tier B: baseline
     MIN_RR: float = 1.5    # minimum risk/reward ratio (worst-case fill)
+    MIN_RR_A: float = 2.0  # Tier A SFP minimum RR (scan_sfp_asia)
     SL_BUFFER: float = 0.30  # distance beyond zone edge for stop-loss (3 pips × 0.10)
     REGIME_ATR_PERIOD: int = 14          # ATR look-back for regime detection
     REGIME_VOL_MULTIPLIER: float = 2.0   # ATR ratio above which regime = high_vol
     REGIME_RANGE_MULTIPLIER: float = 0.5 # ATR ratio below which regime = range
     CONFLUENCE_WEIGHTS: dict[str, int] = {
-        "Bias_H4":    2,
-        "BOS_M5":     2,
-        "FVG_M5":     1,
-        "Breaker_M5": 2,
-        "OTE":        2,
-        "Sweep":      3,
+        # Tier B / shared
+        "Bias_H4":      2,
+        "BOS_M5":       2,
+        "FVG_M5":       1,
+        "Breaker_M5":   2,
+        "OTE":          2,
+        "Sweep":        3,
+        # Tier A
+        "OB_H1":        2,
+        "Asia_Sweep":   3,
+        "Asia_SFP":     2,
+        "Volume_Confirm": 1,
+        # Tier S
+        "Bias_H1":      2,
+        "OB_M5":        2,
+        "SSL_Sweep":    3,
+        "BSL_Sweep":    3,
+        "CHoCH_M5":     2,
+        "CHoCH_M1":     2,
+        "FVG_M1":       1,
     }
     
     # SFP Asia + OTE (Tier A new)

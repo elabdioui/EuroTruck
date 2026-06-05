@@ -8,8 +8,10 @@ from indicators import (
     detect_order_blocks, update_mitigation, get_nearest_ob,
     find_swings, determine_bias,
     find_swing_liquidity, detect_sweeps, get_recent_sweep,
+    compute_fib_from_sweep, compute_fib_from_sweep_bearish,
 )
 from strategy.killzone import get_active_killzone
+from strategy.scoring import _score_confluences
 from config import cfg
 
 log = logging.getLogger(__name__)
@@ -121,7 +123,7 @@ def scan_ob_retest(
     if recent_fvgs:
         confluences.append("FVG_M5")
 
-    score = min(10, len(confluences) * 2)
+    score = _score_confluences(confluences)
     if score < cfg.MIN_SCORE_A:
         return None
 
@@ -134,9 +136,9 @@ def scan_ob_retest(
         target_tp = min((s.price for s in h1_swings if s.type == "LOW"), default=current_price * 0.996)
         sl = ob.top + 3 * 0.10
 
-    mid_entry = (ob.top + ob.bottom) / 2
-    rr = _safe_rr(target_tp, mid_entry, sl)
-    if rr is None or rr < 1.5:
+    entry_ref = ob.top if direction == "LONG" else ob.bottom
+    rr = _safe_rr(target_tp, entry_ref, sl)
+    if rr is None or rr < cfg.MIN_RR:
         return None
 
     return {
@@ -212,7 +214,7 @@ def scan_london_sweep(
 
     best_fvg = recent_fvgs[-1]
     confluences = ["Bias_H4", "Asia_Sweep", "FVG_M5"]
-    score = 6
+    score = _score_confluences(confluences)
 
     if direction == "LONG":
         sl = sweep_extreme - 3 * 0.10
@@ -221,9 +223,9 @@ def scan_london_sweep(
         sl = sweep_extreme + 3 * 0.10
         target_tp = asia_low
 
-    mid = (best_fvg.top + best_fvg.bottom) / 2
-    rr = _safe_rr(target_tp, mid, sl)
-    if rr is None or rr < 1.5:
+    entry_ref = best_fvg.top if direction == "LONG" else best_fvg.bottom
+    rr = _safe_rr(target_tp, entry_ref, sl)
+    if rr is None or rr < cfg.MIN_RR:
         return None
 
     return {
@@ -330,7 +332,6 @@ def scan_sfp_asia(
         swing_l = min((s.price for s in m15_swings if s.type == "LOW"), default=None)
         if swing_l is None:
             return None
-        from indicators.fibonacci import compute_fib_from_sweep_bearish
         fib = compute_fib_from_sweep_bearish(asia_high, swing_l, ote_low=cfg.OTE_LOW, ote_high=cfg.OTE_HIGH)
 
     if not fib.is_in_ote(sweep_wick):
@@ -345,7 +346,7 @@ def scan_sfp_asia(
     confluences = ["Bias_H4", "Asia_SFP", "Volume_Confirm", "OTE"]
     if recent_fvgs:
         confluences.append("FVG_M5")
-    score = min(10, len(confluences) * 2)
+    score = _score_confluences(confluences)
     if score < cfg.MIN_SCORE_A:
         return None
 
@@ -365,9 +366,9 @@ def scan_sfp_asia(
         sl = sweep_wick + buf
         tp = asia_low
 
-    mid = (entry_low + entry_high) / 2
-    rr = _safe_rr(tp, mid, sl)
-    if rr is None or rr < 2.0:
+    entry_ref = entry_high if direction == "LONG" else entry_low
+    rr = _safe_rr(tp, entry_ref, sl)
+    if rr is None or rr < cfg.MIN_RR_A:
         return None
 
     return {

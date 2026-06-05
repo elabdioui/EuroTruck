@@ -25,6 +25,7 @@ from indicators import (
     compute_fib_from_sweep,
 )
 from strategy.killzone import get_active_killzone
+from strategy.scoring import _score_confluences
 from config import cfg
 
 log = logging.getLogger(__name__)
@@ -67,18 +68,6 @@ def _compute_sl_tp(
         sl = sweep_extreme + buf
         tp = target
     return sl, tp
-
-
-def _score_confluences(confluences: list[str]) -> int:
-    weights = {
-        "FVG_M5": 2, "FVG_M1": 2,
-        "OB_H1": 2, "OB_M5": 1,
-        "SSL_Sweep": 2, "BSL_Sweep": 2,
-        "CHoCH_M5": 2, "CHoCH_M1": 1,
-        f"OTE_{cfg.OTE_LOW}": 1, f"OTE_{cfg.OTE_HIGH}": 1,
-        "Bias_H4": 1, "Bias_H1": 1,
-    }
-    return min(10, sum(weights.get(c, 1) for c in confluences))
 
 
 def scan_golden_setup(
