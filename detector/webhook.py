@@ -5,6 +5,7 @@ import json
 import logging
 
 import httpx
+import requests
 
 from config import cfg
 
@@ -37,6 +38,7 @@ def send_signal(signal_dict: dict) -> bool:
             log.info("Signal sent OK — tier=%s dir=%s score=%s",
                      signal_dict.get("tier"), signal_dict.get("direction"),
                      signal_dict.get("confluence_score"))
+            _log_signal_to_sheet(signal_dict)
             return True
         else:
             log.warning("Backend returned %d: %s", resp.status_code, resp.text[:200])
@@ -44,3 +46,30 @@ def send_signal(signal_dict: dict) -> bool:
     except httpx.RequestError as exc:
         log.error("Webhook request failed: %s", exc)
         return False
+
+
+def _log_signal_to_sheet(signal: dict) -> None:
+    if not cfg.SHEETS_WEBHOOK_URL:
+        return
+    payload = {
+        "token": cfg.SHEETS_WEBHOOK_TOKEN,
+        "nom_signal": signal.get("pattern"),
+        "tier": signal.get("tier"),
+        "date": signal.get("timestamp_maroc", ""),
+        "heure": signal.get("timestamp_maroc", ""),
+        "session": signal.get("killzone"),
+        "direction": signal.get("direction"),
+        "entry": f'{signal.get("entry_low")}-{signal.get("entry_high")}',
+        "sl": signal.get("sl"),
+        "tp": signal.get("tp"),
+        "signal_id": signal.get("signal_id"),
+    }
+    # Format date/heure if timestamp_maroc is a datetime object
+    ts = signal.get("timestamp_maroc")
+    if hasattr(ts, "strftime"):
+        payload["date"] = ts.strftime("%Y-%m-%d")
+        payload["heure"] = ts.strftime("%H:%M")
+    try:
+        requests.post(cfg.SHEETS_WEBHOOK_URL, json=payload, timeout=4)
+    except Exception as exc:
+        log.warning("Sheet append failed (signal sent OK anyway): %s", exc)
