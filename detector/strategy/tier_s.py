@@ -111,13 +111,13 @@ def scan_golden_setup(
         stats.record(_SCANNER, "h4_bias_mismatch")
         return None
 
-    # Hard gate 3: H1 bias
+    # H1 bias — SOFT confluence (no longer a hard gate). H4 (gate 2) remains the
+    # directional gate; H1 alignment only adds confidence via the Bias_H1
+    # confluence below. Requiring both H4 AND H1 cleanly directional at the same
+    # tick was filtering out 100% of H4-aligned scans (see SPEC §1).
     h1_swings = find_swings(h1, lookback=cfg.SWING_LOOKBACK)
     h1_bias = determine_bias(h1_swings)
-    if h1_bias != expected_bias:
-        log.debug("H1 bias %s ≠ %s — Tier S skip", h1_bias, expected_bias)
-        stats.record(_SCANNER, "h1_bias_mismatch")
-        return None
+    h1_aligned = (h1_bias == expected_bias)
 
     # Hard gate 4: M5 recent SSL sweep (LONG) or BSL sweep (SHORT)
     m5_swings = find_swings(m5, lookback=cfg.SWING_LOOKBACK)
@@ -209,10 +209,12 @@ def scan_golden_setup(
 
     # ── Confluences (all soft except entry zone gate above) ──────────────────
     confluences = [
-        "Bias_H4", "Bias_H1",
+        "Bias_H4",
         f"{sweep_type}_Sweep",
         "CHoCH_M5",
     ]
+    if h1_aligned:
+        confluences.append("Bias_H1")
     if entry_tag is not None:
         confluences.append(entry_tag)
     if in_ote:

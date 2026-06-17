@@ -472,6 +472,38 @@ def test_tier_s_ote_fallback_entry(monkeypatch):
     assert abs(result["entry_zone_low"] - round(fib.ote_low, 2)) < 0.05
     assert abs(result["entry_zone_high"] - round(fib.ote_high, 2)) < 0.05
     assert result["confluence_score"] >= 7
+    assert "Bias_H1" in result["confluences"]
+
+
+def test_tier_s_emits_when_h1_not_aligned(monkeypatch):
+    """
+    Regression for H1 demotion: H4 aligns but H1 returns NEUTRAL.
+    Tier S must now emit (previously returned None due to hard H1 gate).
+    Bias_H1 must be absent from confluences; score must still be >= 7.
+    """
+    import strategy.tier_s as m
+    from strategy.tier_s import scan_golden_setup
+
+    _patch_tier_s_indicators(monkeypatch, m, sweep_price=3300.0, swing_h=3400.0, h1_tp_high=3600.0)
+
+    # Override determine_bias: first call (H4) → BULLISH, second call (H1) → NEUTRAL
+    _call_count = [0]
+    def biased_determine_bias(*a, **kw):
+        _call_count[0] += 1
+        return "BULLISH" if _call_count[0] == 1 else "NEUTRAL"
+    monkeypatch.setattr(m, "determine_bias", biased_determine_bias)
+
+    price = 3330.0  # inside OTE [3321.4, 3338.2]
+    rows = [{"open": price, "high": price + 1, "low": price - 1, "close": price}] * 50
+    df = _make_df(rows)
+    tf = {"M5": df, "M1": df, "H1": df, "H4": df}
+
+    result = scan_golden_setup(tf, "LONG")
+
+    assert result is not None, "Tier S must emit when H4 aligns even if H1 does not"
+    assert "Bias_H1" not in result["confluences"], "Bias_H1 must be absent when H1 is not aligned"
+    assert result["confluence_score"] >= 7
+    assert result["tier"] == "S"
 
 
 def test_tier_s_no_entry_zone_skips(monkeypatch):
@@ -494,20 +526,42 @@ def test_tier_s_no_entry_zone_skips(monkeypatch):
 
 # ── Tier A: Asia Fade tests ────────────────────────────────────────────────────
 
-def test_asia_fade_long(monkeypatch):
+def _make_asia_fade_tf(
+    asia_low=1900.0,
+    asia_high=1950.0,
+    sweep_wick=1895.0,
+    current_price=1900.3,
+    extra_neutral_after_sweep=0,
+):
     """
-    Synthetic Asia range + sweep below asia_low + close back inside + price in range
-    → signal with pattern 'Asia Fade', SL below sweep wick, TP == asia_high,
-      'Asia_Sweep' in confluences.
+    Build tf_data for test_asia_fade_long and related tests.
+    Default current_price=1900.3 is inside the fallback LONG entry zone
+    [asia_low, asia_low + ASIA_FADE_ZONE_PIPS*_PIP] = [1900.0, 1900.5] ± 2-pip tol.
+
+    extra_neutral_after_sweep: insert N extra neutral candles between the
+    reintegration candle and the forming candle (used to age the sweep).
     """
-    import strategy.tier_a as m
-    from strategy.tier_a import scan_asia_fade
+    m5_rows = []
+    # 15 neutral candles (all inside range)
+    for _ in range(15):
+        m5_rows.append({"open": 1920, "high": 1925, "low": 1918, "close": 1922})
+    # sweep candle: wick below asia_low, close below asia_low
+    m5_rows.append({"open": 1903, "high": 1905, "low": sweep_wick, "close": 1898})
+    # reintegration candle: closes back inside
+    m5_rows.append({"open": 1898, "high": 1910, "low": 1897, "close": 1908})
+    # optional neutral candles to age the sweep
+    for _ in range(extra_neutral_after_sweep):
+        m5_rows.append({"open": 1908, "high": 1915, "low": 1905, "close": 1910})
+    # forming candle (current — excluded from closed candles)
+    m5_rows.append({"open": 1905, "high": 1910, "low": 1900, "close": current_price})
 
-    asia_low = 1900.0
-    asia_high = 1950.0
-    sweep_wick = 1895.0
-    current_price = 1920.0
+    m5_df = _make_df(m5_rows)
+    m15_df = _make_df([{"open": 1920, "high": 1925, "low": 1918, "close": 1922}] * 20)
+    h4_df = _make_df([{"open": 1920, "high": 1925, "low": 1918, "close": 1922}] * 30)
+    return {"M5": m5_df, "M15": m15_df, "H4": h4_df}
 
+
+def _patch_asia_fade(monkeypatch, m, asia_low=1900.0, asia_high=1950.0):
     monkeypatch.setattr(m, "get_active_killzone", lambda *a, **kw: "LONDON")
     monkeypatch.setattr(m, "get_asia_range", lambda *a, **kw: (asia_high, asia_low))
     monkeypatch.setattr(m, "find_swings", lambda *a, **kw: [_sw("HIGH", 1960.0), _sw("LOW", 1890.0)])
@@ -516,22 +570,24 @@ def test_asia_fade_long(monkeypatch):
     monkeypatch.setattr(m, "filter_unfilled_fvg", lambda fvgs, *a, **kw: fvgs)
     monkeypatch.setattr(m, "get_recent_fvg", lambda *a, **kw: [])
 
-    # Build M5 dataframe: 28 normal + sweep + reintegration + forming
-    m5_rows = []
-    for _ in range(28):
-        m5_rows.append({"open": 1920, "high": 1925, "low": 1918, "close": 1922})
-    # sweep candle: wick below asia_low, close below asia_low (close-back in next candle)
-    m5_rows.append({"open": 1903, "high": 1905, "low": sweep_wick, "close": 1898})
-    # reintegration candle: closes back inside
-    m5_rows.append({"open": 1898, "high": 1910, "low": 1897, "close": 1908})
-    # forming candle (current)
-    m5_rows.append({"open": 1910, "high": 1925, "low": 1908, "close": current_price})
 
-    m5_df = _make_df(m5_rows)
-    m15_df = _make_df([{"open": 1920, "high": 1925, "low": 1918, "close": 1922}] * 20)
-    h4_df = _make_df([{"open": 1920, "high": 1925, "low": 1918, "close": 1922}] * 30)
+def test_asia_fade_long(monkeypatch):
+    """
+    Synthetic Asia range + sweep below asia_low + close back inside + price in entry zone
+    → signal with pattern 'Asia Fade', SL below sweep wick, TP == asia_high,
+      'Asia_Sweep' in confluences.
+    current_price=1900.3 is inside the fallback zone [1900.0, 1900.5] ± tol.
+    """
+    import strategy.tier_a as m
+    from strategy.tier_a import scan_asia_fade
 
-    tf = {"M5": m5_df, "M15": m15_df, "H4": h4_df}
+    asia_low, asia_high, sweep_wick = 1900.0, 1950.0, 1895.0
+
+    m._reset_asia_fade_dedup()
+    _patch_asia_fade(monkeypatch, m, asia_low, asia_high)
+
+    tf = _make_asia_fade_tf(asia_low=asia_low, asia_high=asia_high,
+                            sweep_wick=sweep_wick, current_price=1900.3)
     result = scan_asia_fade(tf, "LONG")
 
     assert result is not None, "Expected Asia Fade signal"
@@ -540,6 +596,51 @@ def test_asia_fade_long(monkeypatch):
     assert "Asia_Sweep" in result["confluences"]
     assert result["stop_loss"] < sweep_wick, "SL must be below the sweep wick"
     assert abs(result["take_profit"] - asia_high) < 0.01, "TP must equal asia_high"
+
+
+def test_asia_fade_price_outside_entry_zone_skips(monkeypatch):
+    """Regression for Fix #1: price mid-range (1920) is outside the entry zone → None."""
+    import strategy.tier_a as m
+    from strategy.tier_a import scan_asia_fade
+
+    m._reset_asia_fade_dedup()
+    _patch_asia_fade(monkeypatch, m)
+
+    tf = _make_asia_fade_tf(current_price=1920.0)
+    result = scan_asia_fade(tf, "LONG")
+    assert result is None, "Expected None when price is outside the entry zone"
+
+
+def test_asia_fade_dedup_suppresses_second(monkeypatch):
+    """Fix #2: second call with same setup within TTL → None."""
+    import strategy.tier_a as m
+    from strategy.tier_a import scan_asia_fade
+
+    m._reset_asia_fade_dedup()
+    _patch_asia_fade(monkeypatch, m)
+
+    tf = _make_asia_fade_tf(current_price=1900.3)
+    first = scan_asia_fade(tf, "LONG")
+    assert first is not None, "First call must emit"
+
+    second = scan_asia_fade(tf, "LONG")
+    assert second is None, "Second call within TTL must be suppressed by dedup"
+
+
+def test_asia_fade_stale_sweep_skips(monkeypatch):
+    """Fix #3: sweep older than ASIA_FADE_SWEEP_MAX_AGE_CANDLES → None."""
+    import strategy.tier_a as m
+    from strategy.tier_a import scan_asia_fade
+    from config import cfg
+
+    m._reset_asia_fade_dedup()
+    _patch_asia_fade(monkeypatch, m)
+
+    # Place extra neutral candles after reintegration to push sweep age beyond the limit
+    stale_count = cfg.ASIA_FADE_SWEEP_MAX_AGE_CANDLES + 2
+    tf = _make_asia_fade_tf(current_price=1900.3, extra_neutral_after_sweep=stale_count)
+    result = scan_asia_fade(tf, "LONG")
+    assert result is None, "Expected None when sweep is too old"
 
 
 def test_asia_fade_range_too_small(monkeypatch):
@@ -652,6 +753,11 @@ def test_orb_long_breakout():
     assert result["stop_loss"] == pytest.approx(or_low, abs=0.01)
     assert result["take_profit"] > or_high
     assert "ORB_Breakout" in result["confluences"]
+    # RR is from the breakout close (3341), not from the OR level — no longer a constant 1.5
+    # tp = 3340 + 1.5 * (3340 - 3330) = 3355; rr = (3355 - 3341) / (3341 - 3330) ≈ 1.27
+    assert result["rr"] == pytest.approx((3355 - 3341) / (3341 - 3330), abs=0.05)
+    # entry zone reaches up to the breakout close
+    assert result["entry_zone_high"] >= 3341
 
 
 def test_orb_range_too_small():
@@ -717,3 +823,19 @@ def test_orb_stale_breakout():
     tf = {"M5": _make_orb_m5(specs)}
     result = scan_orb_ny(tf, "LONG")
     assert result is None, "Expected None when breakout candle is not the most recent closed"
+
+
+def test_orb_overextended_breakout_skips():
+    """Breakout close near TP → RR from close < ORB_MIN_RR → None."""
+    _reset_daily_guard()
+    or_high, or_low = 3340.0, 3330.0  # range=10, tp=3340+1.5*10=3355
+    specs = _or_candles(or_high, or_low)
+    # breakout candle closes at 3352 — almost at TP
+    # rr = (3355 - 3352) / (3352 - 3330) ≈ 0.14 < ORB_MIN_RR=1.0
+    specs.append({"ny_time": "10:05", "open": 3340.5, "high": 3353, "low": 3340, "close": 3352})
+    # forming candle (excluded)
+    specs.append({"ny_time": "10:10", "open": 3352, "high": 3354, "low": 3351, "close": 3352})
+
+    tf = {"M5": _make_orb_m5(specs)}
+    result = scan_orb_ny(tf, "LONG")
+    assert result is None, "Expected None when breakout is over-extended (RR from close < ORB_MIN_RR)"

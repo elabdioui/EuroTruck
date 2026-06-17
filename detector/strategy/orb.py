@@ -90,9 +90,6 @@ def scan_orb_ny(timeframes: dict, direction: str) -> dict | None:
         return None
 
     # Find first breakout candle for each direction
-    long_break_idx  = after_df.index[after_df["close"] > or_high].min() if (after_df["close"] > or_high).any() else None
-    short_break_idx = after_df.index[after_df["close"] < or_low].any() and after_df.index[after_df["close"] < or_low].min()
-    # recalculate cleanly
     long_candidates  = after_df[after_df["close"] > or_high]
     short_candidates = after_df[after_df["close"] < or_low]
 
@@ -119,6 +116,7 @@ def scan_orb_ny(timeframes: dict, direction: str) -> dict | None:
         breakout_candle = m5.loc[long_first_idx]
         entry_ref = or_high
         sl        = or_low
+        breakout_close = float(breakout_candle["close"])
 
     else:  # SHORT
         if short_first_idx is None:
@@ -136,6 +134,7 @@ def scan_orb_ny(timeframes: dict, direction: str) -> dict | None:
         breakout_candle = m5.loc[short_first_idx]
         entry_ref = or_low
         sl        = or_high
+        breakout_close = float(breakout_candle["close"])
 
     # Daily guard
     ny_date_str = str(now_ny_date)
@@ -151,19 +150,23 @@ def scan_orb_ny(timeframes: dict, direction: str) -> dict | None:
     else:
         tp = entry_ref - cfg.ORB_TP_R * risk
 
-    rr = _safe_rr(tp, entry_ref, sl)
-    if rr is None or rr < 1.0:
-        log.debug("orb_ny: rr_degenerate (rr=%s)", rr)
-        stats.record("scan_orb_ny", "rr_degenerate")
+    # RR measured from the REAL fill (breakout close), not from the OR level.
+    # TP is anchored to the level, so an over-extended breakout (close already
+    # near/past TP) collapses RR and self-rejects here.
+    rr = _safe_rr(tp, breakout_close, sl)
+    if rr is None or rr < cfg.ORB_MIN_RR:
+        log.debug("orb_ny: rr_below_min (rr=%s, close=%.2f, level=%.2f) — breakout over-extended",
+                  rr, breakout_close, entry_ref)
+        stats.record("scan_orb_ny", "rr_below_min")
         return None
 
-    pip2 = 2 * _PIP
+    tol = cfg.ORB_ENTRY_TOLERANCE_PIPS * _PIP
     if direction == "LONG":
-        entry_zone_low  = or_high - pip2
-        entry_zone_high = or_high + pip2
+        entry_zone_low  = or_high - tol
+        entry_zone_high = breakout_close + tol
     else:
-        entry_zone_low  = or_low - pip2
-        entry_zone_high = or_low + pip2
+        entry_zone_low  = breakout_close - tol
+        entry_zone_high = or_low + tol
 
     _emitted[direction] = ny_date_str
 

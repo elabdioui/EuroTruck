@@ -98,10 +98,17 @@ class Config:
     ORB_WINDOW_MINUTES: int = int(os.getenv("ORB_WINDOW_MINUTES", "30"))
     ORB_TP_R: float = float(os.getenv("ORB_TP_R", "1.5"))
     ORB_MIN_RANGE_PIPS: float = float(os.getenv("ORB_MIN_RANGE_PIPS", "10"))
+    ORB_MIN_RR: float = float(os.getenv("ORB_MIN_RR", "1.0"))
+    ORB_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("ORB_ENTRY_TOLERANCE_PIPS", "2.0"))
 
     # Asia Fade (Tier A)
     ASIA_MIN_RANGE_PIPS: float = float(os.getenv("ASIA_MIN_RANGE_PIPS", "15.0"))
     ASIA_FADE_ZONE_PIPS: float = float(os.getenv("ASIA_FADE_ZONE_PIPS", "5.0"))
+
+    # Asia Fade — entry hardening (SPEC entry_gate)
+    ASIA_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("ASIA_ENTRY_TOLERANCE_PIPS", "2.0"))   # price/zone margin
+    ASIA_FADE_SWEEP_MAX_AGE_CANDLES: int = int(os.getenv("ASIA_FADE_SWEEP_MAX_AGE_CANDLES", "5"))  # sweep recency (M5)
+    ASIA_FADE_DEDUP_TTL_HOURS: float = float(os.getenv("ASIA_FADE_DEDUP_TTL_HOURS", "8.0"))    # 1 emission / range / direction
 
     # Break & Retest S/R (Tier SWING new)
     SR_MIN_REJECTIONS: int = 2          # min swings clustering to call it an S/R level

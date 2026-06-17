@@ -26,7 +26,7 @@ from webhook import send_signal
 os.makedirs("logs", exist_ok=True)
 
 logging.basicConfig(
-    level=cfg.LOG_LEVEL,
+    level=getattr(logging, cfg.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -38,6 +38,7 @@ logging.basicConfig(
         ),
     ],
 )
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("detector.main")
 
 _SCANNER_MAP = {

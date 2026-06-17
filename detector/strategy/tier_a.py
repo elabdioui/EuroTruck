@@ -1,5 +1,6 @@
 """Tier A setups: OB Retest + Asia Fade."""
 import logging
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 import pytz
 
@@ -20,6 +21,19 @@ log = logging.getLogger(__name__)
 _NY_TZ = pytz.timezone("America/New_York")
 
 _PIP = 0.10  # XAUUSD pip unit
+
+# Asia Fade dedup: one signal per faded Asia level, per direction, per session.
+# Key = direction + rounded faded level (asia_low for LONG, asia_high for SHORT).
+_asia_fade_emitted: dict[str, datetime] = {}
+
+
+def _asia_fade_dedup_key(direction: str, faded_level: float) -> str:
+    return f"{direction}_{round(faded_level, 1)}"
+
+
+def _reset_asia_fade_dedup() -> None:
+    """Reset dedup state — used by tests."""
+    _asia_fade_emitted.clear()
 
 
 def get_asia_range(m15: pd.DataFrame) -> tuple[float | None, float | None]:
@@ -228,6 +242,17 @@ def scan_asia_fade(
         stats.record(_S, "range_too_small")
         return None
 
+    # ── Dedup: a single Asia Fade per faded level / direction / session ──────
+    faded_level = asia_low if direction == "LONG" else asia_high
+    _dedup_key = _asia_fade_dedup_key(direction, faded_level)
+    _now = datetime.now(timezone.utc)
+    _ttl = timedelta(hours=cfg.ASIA_FADE_DEDUP_TTL_HOURS)
+    _last = _asia_fade_emitted.get(_dedup_key)
+    if _last is not None and (_now - _last) < _ttl:
+        log.debug("Asia Fade already emitted for %s — skip", _dedup_key)
+        stats.record(_S, "already_emitted_for_sweep")
+        return None
+
     current_price = float(m5.iloc[-1]["close"])
     m5_closed = m5.iloc[:-1]
     lookback = min(20, len(m5_closed))
@@ -236,35 +261,47 @@ def scan_asia_fade(
     # Hard gate 3: sweep of Asia extreme (last 20 closed M5) + close back inside
     found_sweep = False
     sweep_extreme: float | None = None
-    close_back = False
+    last_sweep_idx = -1
+    reintegrated_after_sweep = False
 
-    for i in range(len(recent_m5)):
+    n = len(recent_m5)
+    for i in range(n):
         row = recent_m5.iloc[i]
-        if direction == "LONG" and row["low"] < asia_low:
+        swept = False
+        if direction == "LONG" and float(row["low"]) < asia_low:
+            swept = True
+            sweep_extreme = float(row["low"]) if sweep_extreme is None else min(sweep_extreme, float(row["low"]))
+        elif direction == "SHORT" and float(row["high"]) > asia_high:
+            swept = True
+            sweep_extreme = float(row["high"]) if sweep_extreme is None else max(sweep_extreme, float(row["high"]))
+
+        if swept:
             found_sweep = True
-            if sweep_extreme is None:
-                sweep_extreme = float(row["low"])
-            else:
-                sweep_extreme = min(sweep_extreme, float(row["low"]))
-        elif direction == "SHORT" and row["high"] > asia_high:
-            found_sweep = True
-            if sweep_extreme is None:
-                sweep_extreme = float(row["high"])
-            else:
-                sweep_extreme = max(sweep_extreme, float(row["high"]))
+            last_sweep_idx = i
+            reintegrated_after_sweep = False  # require a reintegration AFTER this sweep
+
         if found_sweep:
-            if direction == "LONG" and float(row["close"]) > asia_low:
-                close_back = True
-            elif direction == "SHORT" and float(row["close"]) < asia_high:
-                close_back = True
+            inside = (
+                (direction == "LONG" and float(row["close"]) > asia_low)
+                or (direction == "SHORT" and float(row["close"]) < asia_high)
+            )
+            if inside:
+                reintegrated_after_sweep = True
 
     if not found_sweep:
         log.debug("No M5 sweep of Asia extreme in last 20 candles — Asia Fade skip")
         stats.record(_S, "no_sweep")
         return None
-    if not close_back:
-        log.debug("No close back inside range after sweep — Asia Fade skip")
+    if not reintegrated_after_sweep:
+        log.debug("No close-back inside after sweep — Asia Fade skip")
         stats.record(_S, "no_reintegration")
+        return None
+
+    # Recency: the sweep must be fresh (otherwise price has already faded the whole range)
+    sweep_age = (n - 1) - last_sweep_idx
+    if sweep_age > cfg.ASIA_FADE_SWEEP_MAX_AGE_CANDLES:
+        log.debug("Asia sweep too old (%d candles) — Asia Fade skip", sweep_age)
+        stats.record(_S, "sweep_too_old")
         return None
 
     # Hard gate 4: current price back inside Asia range
@@ -330,6 +367,17 @@ def scan_asia_fade(
             entry_high = asia_high
             entry_low = asia_high - fade_zone
 
+    # ── Entry gate: price MUST be inside the actionable zone ─────────────────
+    # This is the fix for the "the signal hits TP without me entering" symptom:
+    # only emit when price is still inside the fade zone, not anywhere in the
+    # range.
+    _tol = cfg.ASIA_ENTRY_TOLERANCE_PIPS * _PIP
+    if not (entry_low - _tol <= current_price <= entry_high + _tol):
+        log.debug("Price %.2f outside entry zone [%.2f, %.2f] — Asia Fade skip",
+                  current_price, entry_low, entry_high)
+        stats.record(_S, "price_outside_entry_zone")
+        return None
+
     # Hard gate 5: SL / TP, then worst-case RR
     if direction == "LONG":
         sl = sweep_extreme - cfg.SL_BUFFER  # type: ignore[operator]
@@ -340,13 +388,18 @@ def scan_asia_fade(
         tp = asia_low
         entry_ref = entry_low
 
-    rr = _safe_rr(tp, entry_ref, sl)
+    # After gate 4.3, current_price is inside the zone → honest RR from the real fill.
+    rr = _safe_rr(tp, current_price, sl)
     if rr is None or rr < cfg.MIN_RR_A:
         log.debug("RR %.2f < MIN_RR_A %.1f — Asia Fade skip", rr or 0, cfg.MIN_RR_A)
         stats.record(_S, "rr_below_min")
         return None
 
     stats.record(_S, "EMIT")
+    _asia_fade_emitted[_dedup_key] = _now
+    # prune expired keys to avoid unbounded growth
+    for _k in [k for k, t in _asia_fade_emitted.items() if (_now - t) >= _ttl]:
+        del _asia_fade_emitted[_k]
     return {
         "tier": "A",
         "direction": direction,
