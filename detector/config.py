@@ -50,6 +50,12 @@ class Config:
     SWING_LOOKBACK: int = 5             # candles each side for swing detection
     OTE_LOW: float = 0.618              # shallow OTE boundary (Fibonacci ratio)
     OTE_HIGH: float = 0.786             # deep OTE boundary   (Fibonacci ratio)
+    OTE_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("OTE_ENTRY_TOLERANCE_PIPS", "1.0"))
+    ASIA_SESSION_START_UTC: int = int(os.getenv("ASIA_SESSION_START_UTC", "0"))
+    ASIA_SESSION_END_UTC: int = int(os.getenv("ASIA_SESSION_END_UTC", "6"))
+    LONDON_JUDAS_LOOKBACK_M5: int = int(os.getenv("LONDON_JUDAS_LOOKBACK_M5", "12"))
+    LONDON_JUDAS_MIN_RANGE_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RANGE_PIPS", "15"))
+    LONDON_JUDAS_MIN_RISK_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RISK_PIPS", "5"))
     LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
     # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
     MIN_CONFLUENCE_SCORE: int = 4
