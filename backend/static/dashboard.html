@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EuroTruck Dashboard</title>
+  <style>
+    :root { --bg:#f4f5f7; --panel:#fff; --line:#d9dde3; --text:#20242a; --muted:#667085; --green:#15803d; --red:#b42318; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,-apple-system,sans-serif; }
+    main { max-width:1200px; margin:auto; padding:24px; }
+    header { display:flex; justify-content:space-between; align-items:end; gap:16px; margin-bottom:20px; }
+    h1 { margin:0; font-size:26px; }
+    h2 { margin:28px 0 12px; font-size:18px; }
+    .muted { color:var(--muted); }
+    .cards { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; }
+    .card span { display:block; color:var(--muted); font-size:12px; }
+    .card strong { display:block; margin-top:6px; font-size:24px; }
+    .positive { color:var(--green); }
+    .negative { color:var(--red); }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    select,button,.button { border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--text); padding:8px 10px; font:inherit; }
+    button,.button { cursor:pointer; text-decoration:none; }
+    button:disabled { opacity:.45; cursor:default; }
+    .exports { margin-left:auto; display:flex; gap:8px; }
+    .table-wrap { overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+    table { width:100%; border-collapse:collapse; white-space:nowrap; }
+    th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-size:12px; background:#fafafa; }
+    tbody tr:last-child td { border-bottom:0; }
+    .pager { display:flex; justify-content:flex-end; gap:8px; align-items:center; margin-top:10px; }
+    #message { display:none; padding:12px; background:#fff4e5; border:1px solid #f5c26b; border-radius:8px; }
+    @media (max-width:800px) { .cards { grid-template-columns:repeat(2,1fr); } header { align-items:start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><div><h1>EuroTruck Dashboard</h1><div class="muted">Read-only signal performance</div></div><div class="muted">Last update: <span id="updated">—</span></div></header>
+  <div id="message"></div>
+  <section class="cards">
+    <div class="card"><span>Total signals</span><strong id="total">—</strong></div>
+    <div class="card"><span>Open + Partial</span><strong id="active">—</strong></div>
+    <div class="card"><span>Win rate</span><strong id="wr">—</strong></div>
+    <div class="card"><span>Net R</span><strong id="net">—</strong></div>
+    <div class="card"><span>Avg R</span><strong id="avg">—</strong></div>
+  </section>
+
+  <h2>By setup</h2>
+  <div class="table-wrap"><table><thead><tr><th>Setup</th><th>Total</th><th>WR</th><th>Net R</th><th>Avg MFE</th><th>Avg MAE</th></tr></thead><tbody id="setups"></tbody></table></div>
+
+  <h2>Recent signals</h2>
+  <div class="toolbar">
+    <select id="status"><option value="">All statuses</option><option>open</option><option>partial</option><option>closed_tp</option><option>closed_be</option><option>closed_sl</option></select>
+    <select id="setup"><option value="">All setups</option></select>
+    <div class="exports"><a class="button" id="csv">Download CSV</a><a class="button" id="xlsx">Download XLSX</a></div>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>Opened</th><th>Setup</th><th>Direction</th><th>Status</th><th>Entry</th><th>MFE</th><th>MAE</th><th>R</th></tr></thead><tbody id="signals"></tbody></table></div>
+  <div class="pager"><span id="page" class="muted"></span><button id="prev">Previous</button><button id="next">Next</button></div>
+</main>
+<script>
+  const limit = 20;
+  let offset = 0;
+  let totalRows = 0;
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (value, digits = 2) => value == null ? '—' : Number(value).toFixed(digits);
+  const pct = value => `${(Number(value || 0) * 100).toFixed(1)}%`;
+  const tone = value => Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : '';
+
+  async function getJson(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      let detail = `Request failed (${response.status})`;
+      try { detail = (await response.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    return response.json();
+  }
+
+  function showError(error) {
+    $('message').textContent = error.message;
+    $('message').style.display = 'block';
+  }
+
+  async function loadSummary() {
+    const data = await getJson('/api/dashboard/summary');
+    $('total').textContent = data.total_signals;
+    $('active').textContent = data.open + data.partial;
+    $('wr').textContent = pct(data.win_rate);
+    $('net').textContent = num(data.net_r);
+    $('net').className = tone(data.net_r);
+    $('avg').textContent = num(data.avg_r, 3);
+    $('avg').className = tone(data.avg_r);
+    $('updated').textContent = data.last_signal_at ? new Date(data.last_signal_at).toLocaleString() : 'No signals yet';
+  }
+
+  async function loadSetups() {
+    const rows = await getJson('/api/dashboard/setups');
+    $('setups').innerHTML = rows.length ? rows.map(row => `<tr><td>${esc(row.setup)}</td><td>${row.total}</td><td>${pct(row.win_rate)}</td><td class="${tone(row.net_r)}">${num(row.net_r)}</td><td>${num(row.avg_mfe_pips)}</td><td>${num(row.avg_mae_pips)}</td></tr>`).join('') : '<tr><td colspan="6" class="muted">No signals yet</td></tr>';
+    $('setup').innerHTML = '<option value="">All setups</option>' + rows.map(row => `<option value="${esc(row.setup)}">${esc(row.setup)}</option>`).join('');
+  }
+
+  function query(includePage = true) {
+    const params = new URLSearchParams();
+    if ($('status').value) params.set('status', $('status').value);
+    if ($('setup').value) params.set('setup', $('setup').value);
+    if (includePage) { params.set('limit', limit); params.set('offset', offset); }
+    return params.toString();
+  }
+
+  function updateExports() {
+    const filters = query(false);
+    $('csv').href = '/api/dashboard/export.csv' + (filters ? `?${filters}` : '');
+    $('xlsx').href = '/api/dashboard/export.xlsx' + (filters ? `?${filters}` : '');
+  }
+
+  async function loadSignals() {
+    const data = await getJson(`/api/dashboard/signals?${query()}`);
+    totalRows = data.total;
+    $('signals').innerHTML = data.items.length ? data.items.map(row => `<tr><td>${esc(new Date(row.opened_at).toLocaleString())}</td><td>${esc(row.setup)}</td><td>${esc(row.direction)}</td><td>${esc(row.status)}</td><td>${num(row.entry, 5)}</td><td>${num(row.mfe_pips)}</td><td>${num(row.mae_pips)}</td><td class="${tone(row.realized_r)}">${num(row.realized_r)}</td></tr>`).join('') : '<tr><td colspan="8" class="muted">No matching signals</td></tr>';
+    const first = totalRows ? offset + 1 : 0;
+    $('page').textContent = `${first}–${Math.min(offset + limit, totalRows)} of ${totalRows}`;
+    $('prev').disabled = offset === 0;
+    $('next').disabled = offset + limit >= totalRows;
+    updateExports();
+  }
+
+  async function refreshSignals() {
+    offset = 0;
+    try { await loadSignals(); } catch (error) { showError(error); }
+  }
+
+  $('status').addEventListener('change', refreshSignals);
+  $('setup').addEventListener('change', refreshSignals);
+  $('prev').addEventListener('click', () => { offset = Math.max(0, offset - limit); loadSignals().catch(showError); });
+  $('next').addEventListener('click', () => { offset += limit; loadSignals().catch(showError); });
+
+  Promise.all([loadSummary(), loadSetups()]).then(loadSignals).catch(showError);
+</script>
+</body>
+</html>
