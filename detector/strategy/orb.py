@@ -12,7 +12,7 @@ from strategy.scoring import _safe_rr
 log = logging.getLogger(__name__)
 
 _NY_TZ = pytz.timezone("America/New_York")
-_PIP = 0.10  # XAUUSD pip unit
+_PIP = 0.10  # gold-only, valid only if re-enabled on a 2-digit gold symbol
 
 _OR_START = dtime(9, 30)   # 09:30 NY
 _OR_END   = dtime(10, 0)   # 10:00 NY  (after OR window closes)

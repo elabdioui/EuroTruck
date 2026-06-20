@@ -398,6 +398,29 @@ def test_ob_not_excluded_by_forming_candle():
     assert get_nearest_ob(obs2, price=3303.0, direction="BULLISH") is None
 
 
+def test_eurusd_order_block_body_threshold():
+    """A normal EURUSD M5 body survives the symbol-relative one-pip doji filter."""
+    from config import Config
+    from indicators.order_block import detect_order_blocks
+
+    original_pip = Config.PIP
+    Config.PIP = 0.0001
+    try:
+        rows = [
+            {"open": 1.1000, "high": 1.1002, "low": 1.0998, "close": 1.1000}
+            for _ in range(35)
+        ]
+        rows[30] = {"open": 1.1005, "high": 1.1006, "low": 1.1000, "close": 1.1002}
+        rows[31] = {"open": 1.1003, "high": 1.1010, "low": 1.1002, "close": 1.1009}
+        rows[32] = {"open": 1.1009, "high": 1.1012, "low": 1.1008, "close": 1.1011}
+
+        obs = detect_order_blocks(_make_df(rows), lookback=30)
+
+        assert any(ob.type == "BULLISH" for ob in obs)
+    finally:
+        Config.PIP = original_pip
+
+
 # ── Tier S: OTE fallback entry tests ──────────────────────────────────────────
 
 def _sw(type_: str, price: float):

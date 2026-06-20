@@ -3,6 +3,8 @@ import pandas as pd
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from config import Config
+
 
 @dataclass
 class FVG:
@@ -24,12 +26,12 @@ class FVG:
 def detect_fvg(df: pd.DataFrame, min_size_pips: float = 3.0) -> list[FVG]:
     """
     3-candle pattern: gap between candle[i-1] and candle[i+1].
-    XAUUSD pip = 0.10 (1 point = 0.01, 1 pip = 0.10)
+    Pip size is resolved from the configured live symbol at startup.
     """
     if len(df) < 4:
         return []
 
-    pip_unit = 0.10
+    pip_unit = Config.PIP
     min_size = min_size_pips * pip_unit
     fvgs: list[FVG] = []
 
