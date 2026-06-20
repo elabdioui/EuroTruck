@@ -147,26 +147,40 @@ def test_equilibrium():
 
 # ── Killzone tests ─────────────────────────────────────────────────────────────
 
-from strategy.killzone import get_active_killzone
+from strategy.killzone import get_active_killzone, minutes_to_next_killzone
 import pytz
 
 
 def test_ny_am_killzone():
-    dt = datetime(2024, 1, 15, 14, 30, tzinfo=pytz.utc)  # 14:30 UTC = NY AM
-    kz = get_active_killzone(dt)
-    assert kz == "NY_AM"
+    ny = pytz.timezone("America/New_York")
+    assert get_active_killzone(ny.localize(datetime(2024, 1, 15, 8, 30))) == "NY_AM"
+    assert get_active_killzone(ny.localize(datetime(2024, 1, 15, 8, 29))) is None
 
 
-def test_london_killzone():
-    dt = datetime(2024, 1, 15, 8, 0, tzinfo=pytz.utc)   # 08:00 UTC = London
-    kz = get_active_killzone(dt)
-    assert kz == "LONDON"
+def test_london_killzone_dst_correct():
+    summer = datetime(2024, 7, 15, 7, 0, tzinfo=pytz.utc)  # 03:00 EDT
+    winter = datetime(2024, 1, 15, 8, 0, tzinfo=pytz.utc)  # 03:00 EST
+    assert get_active_killzone(summer) == "LONDON"
+    assert get_active_killzone(winter) == "LONDON"
 
 
 def test_outside_killzone():
-    dt = datetime(2024, 1, 15, 11, 30, tzinfo=pytz.utc)  # 11:30 UTC = dead zone
+    dt = datetime(2024, 1, 15, 17, 0, tzinfo=pytz.utc)  # 12:00 EST = dead zone
     kz = get_active_killzone(dt)
     assert kz is None
+
+
+def test_disabled_killzone_is_filtered(monkeypatch):
+    from config import cfg
+
+    monkeypatch.setattr(cfg, "ENABLED_KILLZONES", ["LONDON", "NY_AM"])
+    ny_pm = datetime(2024, 1, 15, 19, 0, tzinfo=pytz.utc)  # 14:00 EST
+    assert get_active_killzone(ny_pm) is None
+
+
+def test_minutes_to_next_killzone_uses_ny_minutes():
+    before_ny_am = datetime(2024, 1, 15, 13, 29, tzinfo=pytz.utc)  # 08:29 EST
+    assert minutes_to_next_killzone(before_ny_am) == 1
 
 
 # ── Webhook signing test ───────────────────────────────────────────────────────

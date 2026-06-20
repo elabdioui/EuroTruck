@@ -4,6 +4,7 @@ from .tier_b import scan_breaker_fib, scan_bos_fvg
 from .tier_swing import scan_break_retest
 from .orb import scan_orb_ny
 from .killzone import get_active_killzone, is_in_killzone, minutes_to_next_killzone
+from .killzone import KILLZONE_PRIORITY
 
 __all__ = [
     "scan_golden_setup",
@@ -12,4 +13,5 @@ __all__ = [
     "scan_break_retest",
     "scan_orb_ny",
     "get_active_killzone", "is_in_killzone", "minutes_to_next_killzone",
+    "KILLZONE_PRIORITY",
 ]
