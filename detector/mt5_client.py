@@ -48,6 +48,10 @@ def connect() -> bool:
         Config.PIP = override
     else:
         info = mt5.symbol_info(Config.SYMBOL)
+        if info is None:
+            log.error("symbol_info(%s) returned None — cannot resolve PIP", Config.SYMBOL)
+            mt5.shutdown()
+            return False
         Config.PIP = info.point * 10
     log.info("pip_resolved symbol=%s pip=%s", Config.SYMBOL, Config.PIP)
 
