@@ -71,31 +71,3 @@ def detect_fvg(df: pd.DataFrame, min_size_pips: float = 3.0) -> list[FVG]:
                 ))
 
     return fvgs
-
-
-def filter_unfilled_fvg(fvgs: list[FVG], current_price: float) -> list[FVG]:
-    """
-    Marque l'état de remplissage selon le SKILL :
-    - filled : prix a dépassé le mid (mitigation >= 50%) → zone invalidée pour entrée
-    - partially_filled : prix entré dans la zone mais < 50%
-    Pour un FVG bullish (support sous le prix), le remplissage vient par le bas.
-    """
-    result = []
-    for fvg in fvgs:
-        if fvg.type == "BULLISH":
-            if current_price <= fvg.mid:
-                fvg.filled = True            # mitigé à 50%+ (ou traversé)
-            elif current_price < fvg.top:
-                fvg.partially_filled = True  # entré mais < 50%
-        else:  # BEARISH (résistance au-dessus du prix)
-            if current_price >= fvg.mid:
-                fvg.filled = True
-            elif current_price > fvg.bottom:
-                fvg.partially_filled = True
-        result.append(fvg)
-    return result
-
-def get_recent_fvg(fvgs: list[FVG], direction: str, n: int = 3) -> list[FVG]:
-    """Return the N most recent unfilled FVGs matching the direction."""
-    matching = [f for f in fvgs if f.type == direction and not f.filled]
-    return matching[-n:]

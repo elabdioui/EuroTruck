@@ -46,30 +46,6 @@ def find_swings(df: pd.DataFrame, lookback: int = 5) -> list[Swing]:
     return swings
 
 
-def determine_bias(swings: list[Swing]) -> Literal["BULLISH", "BEARISH", "NEUTRAL"]:
-    """
-    Determine market bias from the last 4+ swings.
-    HH + HL pattern = BULLISH
-    LH + LL pattern = BEARISH
-    """
-    highs = [s for s in swings if s.type == "HIGH"][-3:]
-    lows = [s for s in swings if s.type == "LOW"][-3:]
-
-    if len(highs) < 2 or len(lows) < 2:
-        return "NEUTRAL"
-
-    hh = highs[-1].price > highs[-2].price  # higher high
-    hl = lows[-1].price > lows[-2].price    # higher low
-    lh = highs[-1].price < highs[-2].price  # lower high
-    ll = lows[-1].price < lows[-2].price    # lower low
-
-    if hh and hl:
-        return "BULLISH"
-    if lh and ll:
-        return "BEARISH"
-    return "NEUTRAL"
-
-
 def detect_structure_breaks(
     df: pd.DataFrame,
     swings: list[Swing],
@@ -124,24 +100,6 @@ def detect_structure_breaks(
             active_sl = None
 
     return breaks
-
-def get_recent_choch(
-    df: pd.DataFrame,
-    swings: list[Swing],
-    bias: Literal["BULLISH", "BEARISH", "NEUTRAL"],
-    lookback_candles: int = 20,
-) -> StructureBreak | None:
-    """Return the most recent CHoCH within the last N candles, if any.
-
-    BUGFIX: previously sliced df.iloc[-lookback_candles:] while swings carried
-    full-df positional indices, so breaks were almost never detected. Now runs
-    on the full df and filters recency by candle_idx.
-    """
-    breaks = detect_structure_breaks(df, swings, bias)
-    cutoff = max(0, len(df) - lookback_candles)
-    chochs = [b for b in breaks if b.type == "CHoCH" and b.candle_idx >= cutoff]
-    return chochs[-1] if chochs else None
-
 
 def get_recent_structure_break(
     df: pd.DataFrame,

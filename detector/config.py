@@ -26,12 +26,8 @@ class Config:
     BACKEND_WEBHOOK_URL: str = os.getenv("BACKEND_WEBHOOK_URL", "")
     WEBHOOK_HMAC_SECRET: str = os.getenv("WEBHOOK_HMAC_SECRET", "")
 
-    SHEETS_WEBHOOK_URL: str = os.getenv("SHEETS_WEBHOOK_URL", "")
-    SHEETS_WEBHOOK_TOKEN: str = os.getenv("SHEETS_WEBHOOK_TOKEN", "")
-
     ENABLED_KILLZONES: list[str] = os.getenv("ENABLED_KILLZONES", "LONDON,NY_AM").split(",")
 
-    TIMEZONE: str = os.getenv("TIMEZONE", "Africa/Casablanca")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
     # Candle counts per timeframe for OHLC fetch
@@ -46,7 +42,6 @@ class Config:
     FVG_MIN_SIZE_PIPS: float = 2.0      # minimum FVG size in symbol-driven pips
     OB_MIN_BODY_PIPS: float = 1.0       # doji filter; mirrors gold's 1-pip intent. Starting hypothesis.
     OB_LOOKBACK: int = 30               # candles to look back for OB detection
-    OB_MITIGATION_LOOKBACK: int = 5     # candles to scan for OB mitigation
     SWING_LOOKBACK: int = 5             # candles each side for swing detection
     OTE_LOW: float = 0.618              # shallow OTE boundary (Fibonacci ratio)
     OTE_HIGH: float = 0.786             # deep OTE boundary   (Fibonacci ratio)
@@ -76,43 +71,6 @@ class Config:
     BREAKER_REQUIRE_H1_BIAS_ALIGN: bool = os.getenv(
         "BREAKER_REQUIRE_H1_BIAS_ALIGN", "false"
     ).lower() == "true"
-    LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
-    # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
-    MIN_CONFLUENCE_SCORE: int = 4
-    MIN_RR: float = 1.5    # minimum risk/reward ratio (worst-case fill)
     SL_BUFFER_PIPS: float = 3.0  # used as SL_BUFFER_PIPS * Config.PIP in new setups
-    CONFLUENCE_WEIGHTS: dict[str, int] = {
-        # Tier B / shared
-        "Bias_H4":      2,
-        "BOS_M5":       2,
-        "FVG_M5":       1,
-        "Breaker_M5":   2,
-        "OTE":          2,
-        "Sweep":        3,
-        # Tier A
-        "OB_H1":        2,
-        "Asia_Sweep":   3,
-        "Asia_SFP":     2,
-        "Volume_Confirm": 1,
-        "SFP_Wick":     1,
-        "Volume_Spike": 1,
-        # Tier S
-        "Bias_H1":      2,
-        "OB_M5":        2,
-        "SSL_Sweep":    3,
-        "BSL_Sweep":    3,
-        "CHoCH_M5":     2,
-        "CHoCH_M1":     2,
-        "FVG_M1":       1,
-        # Tier SWING
-        "SR_Level":         2,
-        "Breakout_Volume":  2,
-        "Polarity_Retest":  2,
-        "Rejection_Candle": 2,
-    }
     
-    # Asia Fade — entry hardening (SPEC entry_gate)
-    ASIA_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("ASIA_ENTRY_TOLERANCE_PIPS", "2.0"))   # price/zone margin
-
-
 cfg = Config()
