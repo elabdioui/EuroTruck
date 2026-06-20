@@ -3,6 +3,8 @@ import pandas as pd
 from dataclasses import dataclass
 from datetime import datetime
 
+from config import Config
+
 
 @dataclass
 class OrderBlock:
@@ -37,7 +39,7 @@ def detect_order_blocks(df: pd.DataFrame, lookback: int = 30) -> list[OrderBlock
     for i in range(lookback, len(df) - 3):
         candle = df.iloc[i]
         body = abs(candle["close"] - candle["open"])
-        if body < 0.10:  # ignore doji
+        if body < Config.OB_MIN_BODY_PIPS * Config.PIP:  # ignore doji
             continue
 
         is_bearish = candle["close"] < candle["open"]

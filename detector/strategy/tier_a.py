@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 _NY_TZ = pytz.timezone("America/New_York")
 
-_PIP = 0.10  # XAUUSD pip unit
+_PIP = 0.10  # gold-only, valid only if re-enabled on a 2-digit gold symbol
 
 # Asia Fade dedup: one signal per faded Asia level, per direction, per session.
 # Key = direction + rounded faded level (asia_low for LONG, asia_high for SHORT).

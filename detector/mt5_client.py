@@ -1,8 +1,10 @@
 import logging
+import os
 import pandas as pd
 import MetaTrader5 as mt5
 from datetime import datetime
 
+from config import Config
 from config import cfg
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,14 @@ def connect() -> bool:
         log.error("MT5 init succeeded but account_info() is None — terminal not logged in")
         mt5.shutdown()
         return False
+
+    override = float(os.getenv("PIP_OVERRIDE") or 0)
+    if override > 0:
+        Config.PIP = override
+    else:
+        info = mt5.symbol_info(Config.SYMBOL)
+        Config.PIP = info.point * 10
+    log.info("pip_resolved symbol=%s pip=%s", Config.SYMBOL, Config.PIP)
 
     log.info("MT5 connected — account=%s", acc.login)
     return True

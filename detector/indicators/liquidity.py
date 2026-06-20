@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from config import Config
+
 from .structure import Swing, find_swings
 
 
@@ -25,7 +27,7 @@ def find_equal_highs_lows(
     Equal highs = BSL (stops sitting above).
     Equal lows  = SSL (stops sitting below).
     """
-    pip_unit = 0.10
+    pip_unit = Config.PIP
     tol = tolerance_pips * pip_unit
     levels: list[LiquidityLevel] = []
 
@@ -51,7 +53,7 @@ def find_swing_liquidity(
 ) -> list[LiquidityLevel]:
     """Major swing highs = BSL, major swing lows = SSL.
     Merges levels within equal_threshold_pips to avoid duplicate sweeps."""
-    pip_unit = 0.10
+    pip_unit = Config.PIP
     tol = equal_threshold_pips * pip_unit
     levels: list[LiquidityLevel] = []
 

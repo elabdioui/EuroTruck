@@ -16,7 +16,8 @@ class Config:
     MT5_INIT_RETRY_DELAY_SECONDS: int = int(os.getenv("MT5_INIT_RETRY_DELAY_SECONDS", "30"))
     HEARTBEAT_MINUTES: int = int(os.getenv("HEARTBEAT_MINUTES", "15"))
 
-    SYMBOL: str = os.getenv("SYMBOL", "XAUUSD")
+    SYMBOL: str = os.getenv("SYMBOL", "EURUSDm")
+    PIP: float = 0.0001  # safe EURUSD default; resolved from the live symbol at startup
     SCAN_INTERVAL_SECONDS: int = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
 
     BACKEND_WEBHOOK_URL: str = os.getenv("BACKEND_WEBHOOK_URL", "")
@@ -25,8 +26,10 @@ class Config:
     SHEETS_WEBHOOK_URL: str = os.getenv("SHEETS_WEBHOOK_URL", "")
     SHEETS_WEBHOOK_TOKEN: str = os.getenv("SHEETS_WEBHOOK_TOKEN", "")
 
-    ENABLED_TIERS: list[str] = os.getenv("ENABLED_TIERS", "S,A,B,ORB").split(",")
-    ENABLED_KILLZONES: list[str] = os.getenv("ENABLED_KILLZONES", "LONDON,NY_AM,NY_PM").split(",")
+    ENABLED_TIERS: list[str] = [
+        tier for tier in os.getenv("ENABLED_TIERS", "").split(",") if tier
+    ]
+    ENABLED_KILLZONES: list[str] = os.getenv("ENABLED_KILLZONES", "LONDON,NY_AM").split(",")
 
     TIMEZONE: str = os.getenv("TIMEZONE", "Africa/Casablanca")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -40,7 +43,8 @@ class Config:
     OHLC_COUNT_D1: int = 30
 
     # ICT params
-    FVG_MIN_SIZE_PIPS: float = 3.0      # minimum FVG size (XAUUSD pip = 0.1)
+    FVG_MIN_SIZE_PIPS: float = 2.0      # minimum FVG size in symbol-driven pips
+    OB_MIN_BODY_PIPS: float = 1.0       # doji filter; mirrors gold's 1-pip intent. Starting hypothesis.
     OB_LOOKBACK: int = 30               # candles to look back for OB detection
     OB_MITIGATION_LOOKBACK: int = 5     # candles to scan for OB mitigation
     SWING_LOOKBACK: int = 5             # candles each side for swing detection
@@ -56,6 +60,7 @@ class Config:
     MIN_RR_A: float = 2.0  # Tier A minimum RR (Asia Fade, OB Retest)
     MIN_RR_S: float = 2.0  # Tier S Golden Setup minimum RR (worst-case edge)
     SL_BUFFER: float = 0.30  # distance beyond zone edge for stop-loss (3 pips × 0.10)
+    SL_BUFFER_PIPS: float = 3.0  # used as SL_BUFFER_PIPS * Config.PIP in new setups
     REGIME_ATR_PERIOD: int = 14          # ATR look-back for regime detection
     REGIME_VOL_MULTIPLIER: float = 2.0   # ATR ratio above which regime = high_vol
     REGIME_RANGE_MULTIPLIER: float = 0.5 # ATR ratio below which regime = range
