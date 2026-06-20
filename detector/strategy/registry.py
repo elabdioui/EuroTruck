@@ -33,6 +33,22 @@ def all_setups() -> list[SetupSpec]:
     return list(_REGISTRY.values())
 
 
+def runnable_setups(active_kz: Optional[str]) -> list[SetupSpec]:
+    """Return the setups eligible to scan for the active killzone.
+
+    Required setups only run in one of their configured killzones. Preferred
+    and agnostic setups always run; downstream signal tagging records whether
+    a preferred setup matched its configured killzone.
+    """
+    out: list[SetupSpec] = []
+    for spec in _REGISTRY.values():
+        if spec.killzone_mode == "required":
+            if active_kz is None or active_kz not in spec.killzones:
+                continue
+        out.append(spec)
+    return out
+
+
 def clear() -> None:
     """Clear the registry for test isolation."""
     _REGISTRY.clear()

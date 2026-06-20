@@ -23,7 +23,7 @@ import strategy.overlap_bos  # noqa: F401
 import strategy.breaker_flip  # noqa: F401
 from config import cfg
 from strategy import (
-    is_in_killzone, minutes_to_next_killzone, get_active_killzone,
+    minutes_to_next_killzone, get_active_killzone, runnable_setups,
 )
 from tracker import record_signal as tracker_record
 from tracker import tick as tracker_tick
@@ -67,14 +67,16 @@ def _is_cooling_down(signal: dict) -> bool:
     return elapsed < cooldown
 def scan_once() -> None:
     now_utc = datetime.now(tz=timezone.utc)
+    active_kz = get_active_killzone(now_utc)
 
-    if not is_in_killzone(now_utc):
+    runnable = runnable_setups(active_kz)
+    if not runnable:
         mins = minutes_to_next_killzone(now_utc)
-        log.debug("Outside killzone — next in %d min", mins)
+        log.debug("No runnable setups (only required, outside killzone) — next in %d min", mins)
         return
 
-    killzone = get_active_killzone(now_utc)
-    log.info("Scan — killzone=%s time=%s", killzone, now_utc.strftime("%H:%M UTC"))
+    log.info("Scan — killzone=%s runnable=%d time=%s",
+             active_kz, len(runnable), now_utc.strftime("%H:%M UTC"))
 
     if not mt5.is_connected():
         log.warning("MT5 disconnected — attempting reconnect")
@@ -87,13 +89,7 @@ def scan_once() -> None:
         log.warning("Could not fetch OHLC data")
         return
 
-    active_kz = get_active_killzone(now_utc)
-
-    for spec in strategy.all_setups():
-        if spec.killzone_mode == "required":
-            if active_kz is None or active_kz not in spec.killzones:
-                continue
-
+    for spec in runnable:
         try:
             signal = spec.scan(tf_data)
         except Exception:
