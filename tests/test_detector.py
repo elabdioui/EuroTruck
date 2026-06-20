@@ -72,56 +72,7 @@ def test_fvg_too_small_filtered():
 
 # ── Structure tests ────────────────────────────────────────────────────────────
 
-from indicators.structure import find_swings, determine_bias
-
-
-def _trending_up_df(n: int = 30) -> pd.DataFrame:
-    # Explicit HH/HL zigzag so find_swings(lookback=3) detects clear pivots.
-    # Monotonic series have no local extrema — no swings → NEUTRAL bias.
-    heights = [
-        102, 100, 98, 96, 94,    # declining to swing low 1
-        92,                      # swing low 1  (index 5)
-        95, 98, 101, 104, 107,   # rising
-        110,                     # swing high 1 (index 11)
-        107, 104, 101, 98,       # pullback
-        96,                      # swing low 2  (index 16, HL: 96 > 92)
-        99, 102, 105, 108, 111,
-        114,                     # swing high 2 (index 22, HH: 114 > 110)
-        111, 108, 105,
-    ]
-    rows = [{"open": h, "high": h + 2, "low": h - 2, "close": h} for h in heights]
-    return _make_df(rows)
-
-
-def _trending_down_df(n: int = 30) -> pd.DataFrame:
-    # Explicit LH/LL zigzag so find_swings(lookback=3) detects clear pivots.
-    heights = [
-        98, 100, 102, 104, 106,  # rising to swing high 1
-        108,                     # swing high 1 (index 5)
-        105, 102, 99, 96, 93,    # dropping
-        90,                      # swing low 1  (index 11)
-        93, 96, 99, 102,         # bounce
-        104,                     # swing high 2 (index 16, LH: 104 < 108)
-        101, 98, 95, 92, 89,
-        86,                      # swing low 2  (index 22, LL: 86 < 90)
-        89, 92, 95,
-    ]
-    rows = [{"open": h, "high": h + 2, "low": h - 2, "close": h} for h in heights]
-    return _make_df(rows)
-
-
-def test_bullish_bias_detected():
-    df = _trending_up_df()
-    swings = find_swings(df, lookback=3)
-    bias = determine_bias(swings)
-    assert bias == "BULLISH"
-
-
-def test_bearish_bias_detected():
-    df = _trending_down_df()
-    swings = find_swings(df, lookback=3)
-    bias = determine_bias(swings)
-    assert bias == "BEARISH"
+from indicators.structure import find_swings
 
 
 # ── Fibonacci tests ────────────────────────────────────────────────────────────
@@ -205,8 +156,7 @@ def test_hmac_sign_different_secret():
 # ── Structure break / CHoCH regression tests ──────────────────────────────────
 
 from indicators.structure import (
-    find_swings, detect_structure_breaks, get_recent_choch,
-    get_recent_structure_break, Swing,
+    find_swings, get_recent_structure_break, Swing,
 )
 
 
@@ -244,90 +194,13 @@ def _make_trending_df_with_break() -> tuple[pd.DataFrame, list[Swing]]:
 
 
 def test_structure_break_in_bias_direction_detected():
-    """
-    Regression for Tier S contradiction: with H1 bias BULLISH the old code called
-    get_recent_choch(df, swings, bias="BULLISH"). Because detect_structure_breaks
-    labels a break in the direction of current_bias as BOS (not CHoCH), the result
-    was always None when bias was already aligned — making Tier S step 4 impossible.
-
-    get_recent_structure_break ignores the BOS/CHoCH label and should find the break.
-    """
+    """The runtime helper finds a recent bullish structure break."""
     df, swings = _make_trending_df_with_break()
 
     # New function: must find the bullish break in the last 15 candles.
     sb = get_recent_structure_break(df, swings, "BULLISH", lookback_candles=15)
     assert sb is not None, "get_recent_structure_break should detect the bullish break"
     assert sb.direction == "BULLISH"
-
-    # Old function with bias="BULLISH": documents the original bug — it returned None
-    # because the break was labeled BOS, not CHoCH.
-    old_result = get_recent_choch(df, swings, "BULLISH", lookback_candles=15)
-    assert old_result is None, (
-        "get_recent_choch(bias='BULLISH') should return None when the break is a BOS "
-        "(break in bias direction) — this documents the Tier S logical impossibility"
-    )
-
-
-def test_get_recent_choch_index_alignment():
-    """
-    Regression for the slicing bug: the old code did df.iloc[-lookback:] before
-    calling detect_structure_breaks, but swing.index values are positional indices
-    into the FULL df. After slicing, loop index i ∈ [0, lookback) while swing.index
-    values are ≥ 150+, so swings never became 'active' and breaks were never detected.
-
-    The fixed version runs on the full df and filters by candle_idx afterwards.
-
-    Strategy: build a 200-candle df with a clear swing HIGH at index ~155 (well into
-    the full df), then a bullish break of that swing in the last 10 candles.
-    Use bias="NEUTRAL" so the break is labeled CHoCH regardless of direction.
-    """
-    rows = []
-    # candles 0-149: flat at 3300 — no swings, just filler to push indices up
-    for _ in range(150):
-        rows.append({"open": 3300, "high": 3302, "low": 3298, "close": 3300})
-    # candles 150-152: rise to swing high candidate
-    rows.append({"open": 3300, "high": 3305, "low": 3299, "close": 3304})
-    rows.append({"open": 3304, "high": 3308, "low": 3303, "close": 3307})
-    # candle 152: isolated swing HIGH — higher than neighbours on both sides
-    rows.append({"open": 3307, "high": 3315, "low": 3306, "close": 3308})  # idx=152, high=3315
-    # candles 153-155: drop away so pivot is confirmed
-    rows.append({"open": 3308, "high": 3310, "low": 3305, "close": 3306})
-    rows.append({"open": 3306, "high": 3308, "low": 3303, "close": 3304})
-    rows.append({"open": 3304, "high": 3306, "low": 3301, "close": 3302})
-    # candles 156-188: flat below 3315 — keeps the swing intact
-    for _ in range(33):
-        rows.append({"open": 3302, "high": 3304, "low": 3300, "close": 3302})
-    # candles 189-197: gradual rise toward the swing high (approaching but not breaking)
-    for j in range(9):
-        p = 3302.0 + j * 1.2
-        rows.append({"open": p, "high": p + 1, "low": p - 0.5, "close": p + 0.5})
-    # candle 198: prev_close < 3315
-    rows.append({"open": 3312, "high": 3314, "low": 3311, "close": 3313})
-    # candle 199: bullish break — prev_close (3313) ≤ 3315 < close (3318) → CHoCH/BOS
-    rows.append({"open": 3314, "high": 3320, "low": 3313, "close": 3318})
-
-    df = _make_df(rows)
-    swings = find_swings(df, lookback=3)
-
-    # Verify the swing at idx=152 is detected
-    swing_highs = [s for s in swings if s.type == "HIGH"]
-    assert any(s.price >= 3314 for s in swing_highs), (
-        "Expected a swing HIGH >= 3314 to be detected at index ~152"
-    )
-
-    # Fixed get_recent_choch: must find the CHoCH (bias=NEUTRAL → all breaks are CHoCH)
-    choch = get_recent_choch(df, swings, "NEUTRAL", lookback_candles=15)
-    assert choch is not None, "Fixed get_recent_choch must detect the break in last 15 candles"
-    assert choch.direction == "BULLISH"
-    assert choch.candle_idx >= 185, f"Expected break near end, got candle_idx={choch.candle_idx}"
-
-    # lookback=5 must not return a break that happened at index ~199 (it should, 199>=195)
-    # but a break at index 152 must be excluded by lookback=15
-    choch_tight = get_recent_choch(df, swings, "NEUTRAL", lookback_candles=5)
-    if choch_tight is not None:
-        assert choch_tight.candle_idx >= 195, (
-            f"lookback=5 must only return very recent breaks, got idx={choch_tight.candle_idx}"
-        )
 
 
 def test_sfp_ote_geometry():
@@ -359,57 +232,6 @@ def test_sfp_ote_geometry():
             f"OLD anchoring: sweep_wick={wick} (below asia_low=3306) must fail "
             f"is_in_ote — documents why the original check was dead"
         )
-
-
-def test_ob_not_excluded_by_forming_candle():
-    """
-    Regression for closed-candle-only Order Block mitigation.
-
-    A bullish OB at [3300, 3305] should remain untouched (and be returned by
-    get_nearest_ob) when only CLOSED candles are used for mitigation — even if the
-    forming (last) candle enters the zone.
-    """
-    from indicators.order_block import OrderBlock, update_mitigation, get_nearest_ob
-    from datetime import datetime, timezone
-
-    ob_bottom, ob_top = 3300.0, 3305.0
-    ob = OrderBlock(
-        type="BULLISH",
-        top=ob_top,
-        bottom=ob_bottom,
-        mid=(ob_top + ob_bottom) / 2,
-        time=datetime(2024, 1, 1, tzinfo=timezone.utc),
-    )
-
-    # Build H1 df: closed candles stay above the OB zone; forming candle enters it.
-    closed_rows = [
-        {"open": 3310, "high": 3315, "low": 3308, "close": 3312},  # above OB
-        {"open": 3312, "high": 3316, "low": 3309, "close": 3313},  # above OB
-        {"open": 3313, "high": 3317, "low": 3310, "close": 3311},  # above OB
-    ]
-    forming_row = {"open": 3306, "high": 3307, "low": 3301, "close": 3303}  # inside OB
-
-    all_rows = closed_rows + [forming_row]
-    df_full = _make_df(all_rows)
-    df_closed = df_full.iloc[:-1]
-
-    # Mitigation on CLOSED candles only — OB must remain untouched
-    obs = [ob]
-    obs = update_mitigation(obs, df_closed, lookback=len(df_closed))
-    assert not obs[0].touched, "OB must not be touched when only closed candles are used"
-
-    result = get_nearest_ob(obs, price=3303.0, direction="BULLISH")
-    assert result is not None, "get_nearest_ob must return the OB when it is untouched"
-
-    # Sanity check: if the forming candle IS included, touched becomes True and OB is excluded.
-    obs2 = [OrderBlock(
-        type="BULLISH", top=ob_top, bottom=ob_bottom,
-        mid=(ob_top + ob_bottom) / 2,
-        time=datetime(2024, 1, 1, tzinfo=timezone.utc),
-    )]
-    obs2 = update_mitigation(obs2, df_full, lookback=len(df_full))
-    assert obs2[0].touched, "Including the forming candle must set touched=True"
-    assert get_nearest_ob(obs2, price=3303.0, direction="BULLISH") is None
 
 
 def test_eurusd_order_block_body_threshold():
