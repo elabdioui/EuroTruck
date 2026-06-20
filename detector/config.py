@@ -70,6 +70,12 @@ class Config:
     OVERLAP_BOS_FIB_LOW: float = float(os.getenv("OVERLAP_BOS_FIB_LOW", "0.5"))
     OVERLAP_BOS_FIB_HIGH: float = float(os.getenv("OVERLAP_BOS_FIB_HIGH", "0.79"))
     OVERLAP_BOS_MIN_RISK_PIPS: float = float(os.getenv("OVERLAP_BOS_MIN_RISK_PIPS", "6"))
+    BREAKER_LOOKBACK_M5: int = int(os.getenv("BREAKER_LOOKBACK_M5", "50"))
+    BREAKER_RETEST_TOLERANCE_PIPS: float = float(os.getenv("BREAKER_RETEST_TOLERANCE_PIPS", "1"))
+    BREAKER_MIN_RISK_PIPS: float = float(os.getenv("BREAKER_MIN_RISK_PIPS", "5"))
+    BREAKER_REQUIRE_H1_BIAS_ALIGN: bool = os.getenv(
+        "BREAKER_REQUIRE_H1_BIAS_ALIGN", "false"
+    ).lower() == "true"
     LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
     # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
     MIN_CONFLUENCE_SCORE: int = 4
