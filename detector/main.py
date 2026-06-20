@@ -18,6 +18,7 @@ import strategy
 import strategy.london_judas  # noqa: F401 -- triggers registry registration
 import strategy.ote_continuation  # noqa: F401
 import strategy.pdh_pdl_sweep  # noqa: F401
+import strategy.silver_bullet  # noqa: F401
 from config import cfg
 from strategy import (
     is_in_killzone, minutes_to_next_killzone, get_active_killzone,
