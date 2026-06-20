@@ -16,9 +16,6 @@ import mt5_client as mt5
 import stats
 from config import cfg
 from strategy import (
-    scan_golden_setup, scan_ob_retest, scan_asia_fade,
-    scan_breaker_fib, scan_bos_fvg, scan_break_retest,
-    scan_orb_ny,
     is_in_killzone, minutes_to_next_killzone, get_active_killzone,
 )
 from webhook import send_signal
@@ -40,33 +37,6 @@ logging.basicConfig(
 )
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("detector.main")
-
-_SCANNER_MAP = {
-    "S": [
-        lambda tf: scan_golden_setup(tf, "LONG"),
-        lambda tf: scan_golden_setup(tf, "SHORT"),
-    ],
-    "A": [
-        lambda tf: scan_ob_retest(tf, "LONG"),
-        lambda tf: scan_ob_retest(tf, "SHORT"),
-        lambda tf: scan_asia_fade(tf, "LONG"),
-        lambda tf: scan_asia_fade(tf, "SHORT"),
-    ],
-    "B": [
-        lambda tf: scan_breaker_fib(tf, "LONG"),
-        lambda tf: scan_breaker_fib(tf, "SHORT"),
-        lambda tf: scan_bos_fvg(tf, "LONG"),
-        lambda tf: scan_bos_fvg(tf, "SHORT"),
-    ],
-    "SWING": [
-        lambda tf: scan_break_retest(tf, "LONG"),
-        lambda tf: scan_break_retest(tf, "SHORT"),
-    ],
-    "ORB": [
-        lambda tf: scan_orb_ny(tf, "LONG"),
-        lambda tf: scan_orb_ny(tf, "SHORT"),
-    ],
-}
 
 _last_sent: dict[str, datetime] = {}
 _COOLDOWN_BY_TIER = {
@@ -113,44 +83,10 @@ def scan_once() -> None:
         log.warning("Could not fetch OHLC data")
         return
 
-    found_any = False
-    for tier in cfg.ENABLED_TIERS:
-        scanners = _SCANNER_MAP.get(tier, [])
-        for scanner in scanners:
-            try:
-                result = scanner(tf_data)
-            except Exception as exc:
-                log.exception("Scanner error (tier=%s): %s", tier, exc)
-                continue
-
-            if result is None:
-                continue
-
-            if _is_cooling_down(result):
-                log.debug("Cooldown active for %s — skip", _cooldown_key(result))
-                continue
-
-            result["timestamp"] = now_utc.isoformat()
-            result["symbol"] = cfg.SYMBOL
-
-            log.info(
-                "SIGNAL TIER %s %s %s | score=%d | entry=%.2f–%.2f | SL=%.2f TP=%.2f",
-                result["tier"], result["direction"], result["pattern"],
-                result["confluence_score"],
-                result["entry_zone_low"], result["entry_zone_high"],
-                result["stop_loss"], result["take_profit"],
-            )
-
-            ok = send_signal(result)
-            if ok:
-                _last_sent[_cooldown_key(result)] = now_utc
-                found_any = True
-                break  # one signal per scan per tier
+    # Setup dispatch is rebuilt in SPEC 4 (setup registry + killzone-aware gating).
+    # No setups are registered yet — scan completes without emitting.
 
     stats.tick()
-
-    if not found_any:
-        log.debug("No valid signal this scan")
 
 
 def heartbeat() -> None:
@@ -168,8 +104,8 @@ def main() -> None:
     os.makedirs("logs", exist_ok=True)
 
     log.info("=== XAUUSD ICT Detector starting ===")
-    log.info("Symbol=%s  Tiers=%s  Killzones=%s  Interval=%ds",
-             cfg.SYMBOL, cfg.ENABLED_TIERS, cfg.ENABLED_KILLZONES, cfg.SCAN_INTERVAL_SECONDS)
+    log.info("Symbol=%s  Killzones=%s  Interval=%ds",
+             cfg.SYMBOL, cfg.ENABLED_KILLZONES, cfg.SCAN_INTERVAL_SECONDS)
 
     connected = False
     for i in range(1, cfg.MT5_INIT_RETRIES + 1):

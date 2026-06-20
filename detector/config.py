@@ -26,9 +26,6 @@ class Config:
     SHEETS_WEBHOOK_URL: str = os.getenv("SHEETS_WEBHOOK_URL", "")
     SHEETS_WEBHOOK_TOKEN: str = os.getenv("SHEETS_WEBHOOK_TOKEN", "")
 
-    ENABLED_TIERS: list[str] = [
-        tier for tier in os.getenv("ENABLED_TIERS", "").split(",") if tier
-    ]
     ENABLED_KILLZONES: list[str] = os.getenv("ENABLED_KILLZONES", "LONDON,NY_AM").split(",")
 
     TIMEZONE: str = os.getenv("TIMEZONE", "Africa/Casablanca")
@@ -53,17 +50,8 @@ class Config:
     LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
     # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
     MIN_CONFLUENCE_SCORE: int = 4
-    MIN_SCORE_S: int = 7   # Tier S: requires strong confluences
-    MIN_SCORE_A: int = 5   # Tier A: moderate
-    MIN_SCORE_B: int = 4   # Tier B: baseline
     MIN_RR: float = 1.5    # minimum risk/reward ratio (worst-case fill)
-    MIN_RR_A: float = 2.0  # Tier A minimum RR (Asia Fade, OB Retest)
-    MIN_RR_S: float = 2.0  # Tier S Golden Setup minimum RR (worst-case edge)
-    SL_BUFFER: float = 0.30  # distance beyond zone edge for stop-loss (3 pips × 0.10)
     SL_BUFFER_PIPS: float = 3.0  # used as SL_BUFFER_PIPS * Config.PIP in new setups
-    REGIME_ATR_PERIOD: int = 14          # ATR look-back for regime detection
-    REGIME_VOL_MULTIPLIER: float = 2.0   # ATR ratio above which regime = high_vol
-    REGIME_RANGE_MULTIPLIER: float = 0.5 # ATR ratio below which regime = range
     CONFLUENCE_WEIGHTS: dict[str, int] = {
         # Tier B / shared
         "Bias_H4":      2,
@@ -94,34 +82,8 @@ class Config:
         "Rejection_Candle": 2,
     }
     
-    # SFP Asia + OTE (Tier A new)
-    SFP_VOLUME_LOOKBACK: int = 10       # candles for the avg-volume baseline
-    SFP_VOLUME_FACTOR: float = 1.0      # reintegration candle vol > factor * avg
-    SFP_SL_BUFFER_PIPS: float = 8.0     # 5–10 pip range from the doc
-
-    # ORB NY (Opening Range Breakout) — 3 tunable params, no ICT confluences
-    ORB_WINDOW_MINUTES: int = int(os.getenv("ORB_WINDOW_MINUTES", "30"))
-    ORB_TP_R: float = float(os.getenv("ORB_TP_R", "1.5"))
-    ORB_MIN_RANGE_PIPS: float = float(os.getenv("ORB_MIN_RANGE_PIPS", "10"))
-    ORB_MIN_RR: float = float(os.getenv("ORB_MIN_RR", "1.0"))
-    ORB_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("ORB_ENTRY_TOLERANCE_PIPS", "2.0"))
-
-    # Asia Fade (Tier A)
-    ASIA_MIN_RANGE_PIPS: float = float(os.getenv("ASIA_MIN_RANGE_PIPS", "15.0"))
-    ASIA_FADE_ZONE_PIPS: float = float(os.getenv("ASIA_FADE_ZONE_PIPS", "5.0"))
-
     # Asia Fade — entry hardening (SPEC entry_gate)
     ASIA_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("ASIA_ENTRY_TOLERANCE_PIPS", "2.0"))   # price/zone margin
-    ASIA_FADE_SWEEP_MAX_AGE_CANDLES: int = int(os.getenv("ASIA_FADE_SWEEP_MAX_AGE_CANDLES", "5"))  # sweep recency (M5)
-    ASIA_FADE_DEDUP_TTL_HOURS: float = float(os.getenv("ASIA_FADE_DEDUP_TTL_HOURS", "8.0"))    # 1 emission / range / direction
-
-    # Break & Retest S/R (Tier SWING new)
-    SR_MIN_REJECTIONS: int = 2          # min swings clustering to call it an S/R level
-    SR_TOLERANCE_PIPS: float = 30.0     # clustering tolerance for S/R levels
-    SR_VOLUME_MA_PERIOD: int = 20       # volume MA period for breakout confirmation
-    SR_VOLUME_FACTOR: float = 1.3       # breakout candle vol > 1.3 * MA20
-    SR_SL_BUFFER_PIPS: float = 70.0     # 50–100 pip range from the doc
-    SWING_RR_MIN: float = 2.5           # min RR for swing trades
 
 
 cfg = Config()
