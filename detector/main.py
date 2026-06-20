@@ -15,6 +15,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import mt5_client as mt5
 import stats
 import strategy
+import strategy.london_judas  # noqa: F401 -- triggers registry registration
 from config import cfg
 from strategy import (
     is_in_killzone, minutes_to_next_killzone, get_active_killzone,
