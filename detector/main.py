@@ -14,6 +14,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 import mt5_client as mt5
 import stats
+import strategy
 from config import cfg
 from strategy import (
     is_in_killzone, minutes_to_next_killzone, get_active_killzone,
@@ -39,18 +40,12 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("detector.main")
 
 _last_sent: dict[str, datetime] = {}
-_COOLDOWN_BY_TIER = {
-    "S": 300,        # 5 min
-    "A": 300,        # 5 min
-    "B": 300,        # 5 min
-    "SWING": 14400,  # 4 h — un setup swing reste valide longtemps
-    "ORB": 300,      # 5 min (daily guard in the module is the primary de-dup)
-}
+_COOLDOWN_BY_SETUP = {}
 _DEFAULT_COOLDOWN = 300
 
 
 def _cooldown_key(signal: dict) -> str:
-    return f"{signal['tier']}_{signal['direction']}_{signal['pattern']}"
+    return f"{signal['setup']}_{signal['direction']}_{signal['pattern']}"
 
 
 def _is_cooling_down(signal: dict) -> bool:
@@ -58,7 +53,7 @@ def _is_cooling_down(signal: dict) -> bool:
     last = _last_sent.get(key)
     if last is None:
         return False
-    cooldown = _COOLDOWN_BY_TIER.get(signal.get("tier"), _DEFAULT_COOLDOWN)
+    cooldown = _COOLDOWN_BY_SETUP.get(signal.get("setup"), _DEFAULT_COOLDOWN)
     elapsed = (datetime.now(tz=timezone.utc) - last).total_seconds()
     return elapsed < cooldown
 def scan_once() -> None:
@@ -83,8 +78,37 @@ def scan_once() -> None:
         log.warning("Could not fetch OHLC data")
         return
 
-    # Setup dispatch is rebuilt in SPEC 4 (setup registry + killzone-aware gating).
-    # No setups are registered yet — scan completes without emitting.
+    active_kz = get_active_killzone(now_utc)
+
+    for spec in strategy.all_setups():
+        if spec.killzone_mode == "required":
+            if active_kz is None or active_kz not in spec.killzones:
+                continue
+
+        try:
+            signal = spec.scan(tf_data)
+        except Exception:
+            log.exception("Setup %s raised an exception — skip", spec.name)
+            continue
+        if signal is None:
+            continue
+
+        signal["setup"] = spec.name
+        signal["killzone"] = active_kz
+        signal["killzone_match"] = (
+            spec.killzone_mode == "agnostic"
+            or (active_kz is not None and active_kz in spec.killzones)
+        )
+
+        if _is_cooling_down(signal):
+            log.debug("Cooldown active — %s", signal["setup"])
+            continue
+
+        log.info("SIGNAL %s %s — kz=%s match=%s",
+                 signal["setup"], signal.get("direction"),
+                 active_kz, signal["killzone_match"])
+        send_signal(signal)
+        _last_sent[_cooldown_key(signal)] = now_utc
 
     stats.tick()
 
