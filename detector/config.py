@@ -56,6 +56,9 @@ class Config:
     LONDON_JUDAS_LOOKBACK_M5: int = int(os.getenv("LONDON_JUDAS_LOOKBACK_M5", "12"))
     LONDON_JUDAS_MIN_RANGE_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RANGE_PIPS", "15"))
     LONDON_JUDAS_MIN_RISK_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RISK_PIPS", "5"))
+    OTE_CONT_MIN_IMPULSE_PIPS: float = float(os.getenv("OTE_CONT_MIN_IMPULSE_PIPS", "25"))
+    OTE_CONT_MIN_RISK_PIPS: float = float(os.getenv("OTE_CONT_MIN_RISK_PIPS", "5"))
+    OTE_CONT_BIAS_EMA: int = int(os.getenv("OTE_CONT_BIAS_EMA", "20"))
     LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
     # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
     MIN_CONFLUENCE_SCORE: int = 4
