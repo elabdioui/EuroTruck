@@ -1,99 +1,92 @@
-"""Format alert signals into Telegram messages."""
-from datetime import datetime, timezone
-import pytz
+"""Format EuroTruck signals into Telegram messages."""
 
-
-_TIER_EMOJI = {"S": "🔥", "A": "⭐", "B": "👁️"}
 _VERDICT_EMOJI = {"GO": "✅", "NO_GO": "❌", "WAIT": "⏳"}
-_KILLZONE_LABEL = {"LONDON": "London Open", "NY_AM": "NY AM", "NY_PM": "NY PM"}
-_MOROCCO_TZ = pytz.timezone("Africa/Casablanca")
-
-
-def _fmt_time(ts_str: str) -> str:
-    try:
-        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-        morocco = dt.astimezone(_MOROCCO_TZ)
-        return morocco.strftime("%H:%M (Maroc)")
-    except Exception:
-        return ts_str
+_KILLZONE_LABEL = {"LONDON": "London", "NY_AM": "NY AM", "NY_PM": "NY PM"}
 
 
 def _signal_name(signal: dict) -> str:
-    tier = signal.get("tier", "?")
-    direction = signal.get("direction", "?")
-    pattern = signal.get("pattern", "?")
-    killzone = signal.get("killzone", "?")
-    pattern_slug = pattern.replace(" ", "").replace("+", "_")
-    return f"T{tier}_{direction}_{killzone}_{pattern_slug}"
+    setup = str(signal.get("setup", "signal"))
+    direction = str(signal.get("direction", "?"))
+    killzone = str(signal.get("killzone", "?"))
+    setup_slug = setup.replace(" ", "_").replace("+", "_")
+    return f"{setup_slug}_{direction}_{killzone}"
 
 
-def format_alert(signal: dict, verdict: dict | None, provider: str = "") -> str:
-    tier = signal.get("tier", "?")
-    direction = signal.get("direction", "?")
-    pattern = signal.get("pattern", "?")
-    killzone = signal.get("killzone", "?")
-    symbol = signal.get("symbol", "XAUUSD")
+def _fmt_price(value: object) -> str:
+    try:
+        return f"{float(value):.5f}"
+    except (TypeError, ValueError):
+        return "?"
 
-    entry_low = signal.get("entry_zone_low", 0)
-    entry_high = signal.get("entry_zone_high", 0)
-    sl = signal.get("stop_loss", 0)
-    tp = signal.get("take_profit", 0)
-    confluences = signal.get("confluences", [])
-    score = signal.get("confluence_score", 0)
-    winrate = int(signal.get("estimated_winrate", 0) * 100)
 
-    tier_emoji = _TIER_EMOJI.get(tier, "📊")
-    kz_label = _KILLZONE_LABEL.get(killzone, killzone)
-    time_str = _fmt_time(signal.get("timestamp", ""))
+def _planned_rr(signal: dict) -> float | None:
+    try:
+        entry = float(signal["entry"])
+        sl = float(signal["sl"])
+        tp_final = float(signal["tp_final"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    risk = abs(entry - sl)
+    return abs(tp_final - entry) / risk if risk else None
 
-    confluences_str = " | ".join(confluences) if confluences else "—"
-    name = _signal_name(signal)
 
-    header = f"{tier_emoji} TIER {tier} — {symbol} {direction}"
+def format_alert(
+    signal: dict,
+    verdict: dict | None,
+    provider: str = "",
+    news_context: dict | None = None,
+) -> str:
+    setup = str(signal.get("setup", "?"))
+    direction = str(signal.get("direction", "?"))
+    pattern = str(signal.get("pattern", "?"))
+    killzone = str(signal.get("killzone", ""))
+    symbol = str(signal.get("symbol", "EURUSD"))
+    killzone_label = _KILLZONE_LABEL.get(killzone, killzone or "hors session")
+    outside_killzone = " · ⚠️ hors killzone" if not signal.get("killzone_match", False) else ""
+
+    rr = _planned_rr(signal)
+    rr_text = f" · RR {rr:.2f}" if rr is not None else ""
     lines = [
-        header,
-        "━━━━━━━━━━━━━━━━━━━━",
-        f"🏷 Signal : #{name}",
-        f"🕐 {time_str} ({kz_label})",
+        f"📈 {symbol} · {setup} | {direction} | {killzone_label}{outside_killzone}",
+        f"🏷 Signal : #{_signal_name(signal)}",
         f"📊 Pattern : {pattern}",
-        f"📍 Zone entrée : {entry_low:.2f} — {entry_high:.2f}",
-        f"🛑 SL : {sl:.2f}",
-        f"🎯 TP : {tp:.2f}",
-        f"🔗 Confluences : {confluences_str}",
-        f"📈 Score : {score}/10  |  WR estimé : ~{winrate}%",
-        "━━━━━━━━━━━━━━━━━━━━",
+        (
+            f"Entry {_fmt_price(signal.get('entry'))} · "
+            f"SL {_fmt_price(signal.get('sl'))} · "
+            f"TP1 {_fmt_price(signal.get('tp1'))} · "
+            f"TP final {_fmt_price(signal.get('tp_final'))}{rr_text}"
+        ),
     ]
 
-    if verdict:
-        v = verdict.get("verdict", "?")
-        reason = verdict.get("reason_short", "")
-        risk = verdict.get("risk_main", "")
-        action = verdict.get("action", "")
-        v_emoji = _VERDICT_EMOJI.get(v, "❓")
-        provider_tag = f" ({provider})" if provider and provider != "none" else ""
+    if news_context and news_context.get("red_news_imminent"):
+        lines.extend(["", "🔴 News rouge imminente"])
 
-        lines += [
-            f"🤖 VERDICT LLM{provider_tag}",
-            f"{v_emoji} {v}",
-            "",
-            f"💬 {reason}",
-            f"⚠️ Risque : {risk}",
-            f"👉 Action : {action}",
-        ]
+    lines.append("")
+    if verdict:
+        verdict_name = str(verdict.get("verdict", "?"))
+        impact = str(verdict.get("impact_level", "?"))
+        provider_tag = f" ({provider})" if provider and provider != "none" else ""
+        lines.extend(
+            [
+                f"🤖 Analyse LLM{provider_tag}",
+                f"{_VERDICT_EMOJI.get(verdict_name, '❓')} Verdict: {verdict_name} · Impact: {impact}",
+                f"💬 {verdict.get('reason_short', '')}",
+                f"⚠️ Risque : {verdict.get('risk_main', '')}",
+                f"👉 Action : {verdict.get('action', '')}",
+            ]
+        )
     else:
-        lines += [
-            "🤖 Verdict LLM : indisponible (signal brut)",
-        ]
+        lines.append("🤖 Analyse LLM indisponible")
 
     return "\n".join(lines)
 
 
 def format_no_go_news(signal: dict, news_event_title: str) -> str:
-    """Message for automatic kill-switch due to red news."""
-    tier = signal.get("tier", "?")
+    """Message for the optional legacy hard news block."""
+    setup = signal.get("setup", "?")
     direction = signal.get("direction", "?")
     return (
-        f"⛔ SIGNAL BLOQUÉ — Tier {tier} {direction}\n"
-        f"News rouge imminente : {news_event_title}\n"
-        f"Règle kill-switch appliquée — pas de trade."
+        f"⛔ SIGNAL BLOQUÉ — {setup} {direction}\n"
+        f"News imminente : {news_event_title}\n"
+        "Kill-switch explicite appliqué — pas de trade."
     )

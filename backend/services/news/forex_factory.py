@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 log = logging.getLogger(__name__)
 
 ImpactLevel = Literal["red", "orange", "yellow", "gray"]
+_WATCHED = {"USD", "EUR"}
 
 
 @dataclass
@@ -28,12 +29,22 @@ class NewsEvent:
         return (self.time_utc - now).total_seconds() / 60
 
     @property
+    def is_red(self) -> bool:
+        return self.currency in _WATCHED and self.impact == "red"
+
+    @property
+    def is_orange(self) -> bool:
+        return self.currency in _WATCHED and self.impact == "orange"
+
+    @property
     def is_us_red(self) -> bool:
-        return self.currency == "USD" and self.impact == "red"
+        """Deprecated compatibility alias; now covers all watched currencies."""
+        return self.is_red
 
     @property
     def is_us_orange(self) -> bool:
-        return self.currency == "USD" and self.impact == "orange"
+        """Deprecated compatibility alias; now covers all watched currencies."""
+        return self.is_orange
 
 
 _IMPACT_MAP = {
@@ -124,20 +135,28 @@ def _parse_calendar(html: str) -> list[NewsEvent]:
     return events
 
 
+def get_upcoming_events(
+    events: list[NewsEvent],
+    window_minutes: int = 60,
+) -> list[NewsEvent]:
+    """Return watched USD/EUR events within the next window_minutes."""
+    return [
+        e for e in events
+        if e.currency in _WATCHED and 0 <= e.minutes_from_now <= window_minutes
+    ]
+
+
 def get_upcoming_us_events(
     events: list[NewsEvent],
     window_minutes: int = 60,
 ) -> list[NewsEvent]:
-    """Return US events within the next window_minutes."""
-    return [
-        e for e in events
-        if e.currency == "USD" and 0 <= e.minutes_from_now <= window_minutes
-    ]
+    """Deprecated alias for get_upcoming_events."""
+    return get_upcoming_events(events, window_minutes)
 
 
 def is_red_news_imminent(events: list[NewsEvent], window_minutes: int = 15) -> bool:
-    return any(e.is_us_red and 0 <= e.minutes_from_now <= window_minutes for e in events)
+    return any(e.is_red and 0 <= e.minutes_from_now <= window_minutes for e in events)
 
 
 def is_orange_news_imminent(events: list[NewsEvent], window_minutes: int = 5) -> bool:
-    return any(e.is_us_orange and 0 <= e.minutes_from_now <= window_minutes for e in events)
+    return any(e.is_orange and 0 <= e.minutes_from_now <= window_minutes for e in events)
