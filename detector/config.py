@@ -65,6 +65,11 @@ class Config:
     SILVER_BULLET_NY_START_HOUR: int = int(os.getenv("SILVER_BULLET_NY_START_HOUR", "10"))
     SILVER_BULLET_NY_END_HOUR: int = int(os.getenv("SILVER_BULLET_NY_END_HOUR", "11"))
     SILVER_BULLET_MIN_RISK_PIPS: float = float(os.getenv("SILVER_BULLET_MIN_RISK_PIPS", "4"))
+    OVERLAP_BOS_NY_START_HOUR: int = int(os.getenv("OVERLAP_BOS_NY_START_HOUR", "8"))
+    OVERLAP_BOS_NY_END_HOUR: int = int(os.getenv("OVERLAP_BOS_NY_END_HOUR", "10"))
+    OVERLAP_BOS_FIB_LOW: float = float(os.getenv("OVERLAP_BOS_FIB_LOW", "0.5"))
+    OVERLAP_BOS_FIB_HIGH: float = float(os.getenv("OVERLAP_BOS_FIB_HIGH", "0.79"))
+    OVERLAP_BOS_MIN_RISK_PIPS: float = float(os.getenv("OVERLAP_BOS_MIN_RISK_PIPS", "6"))
     LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
     # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
     MIN_CONFLUENCE_SCORE: int = 4
