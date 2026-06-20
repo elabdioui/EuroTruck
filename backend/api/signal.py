@@ -1,4 +1,4 @@
-"""POST /signal — receives signed webhooks from the detector."""
+"""POST /signal — receive and annotate signed EuroTruck webhooks."""
 import json
 import logging
 import uuid
@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
+from core.config import settings
 from core.security import require_hmac
 from db.database import get_session
 from models.alert import Alert
-from services.news.aggregator import get_news_context, is_red_news_kill_switch, is_orange_news_kill_switch
 from services.llm.router import get_verdict
+from services.news.aggregator import get_news_context
 from services.telegram.client import send_message
 from services.telegram.formatter import format_alert, format_no_go_news
 
@@ -30,64 +31,113 @@ async def receive_signal(
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
     log.info(
-        "Signal received — tier=%s dir=%s pattern=%s score=%s",
-        signal.get("tier"), signal.get("direction"),
-        signal.get("pattern"), signal.get("confluence_score"),
+        "Signal received — setup=%s dir=%s pattern=%s",
+        signal.get("setup"),
+        signal.get("direction"),
+        signal.get("pattern"),
     )
 
-    # Hard kill-switch: red news imminent
-    if is_red_news_kill_switch():
-        log.warning("RED NEWS KILL SWITCH — signal rejected")
-        alert = _build_alert(signal, {}, "NO_GO", "Kill-switch news rouge", "", "", "none")
-        session.add(alert)
-        session.commit()
-        blocked_msg = format_no_go_news(signal, "News rouge dans ≤15min")
-        send_message(blocked_msg)
-        return {"status": "blocked", "reason": "red_news_kill_switch"}
+    news_context = get_news_context(
+        window_minutes=60,
+        direction=signal.get("direction"),
+    )
+    red_imminent = bool(news_context.get("red_news_imminent", False))
+    orange_imminent = any(
+        event.get("impact") == "orange"
+        and 0 <= float(event.get("minutes_from_now", 999)) <= settings.NEWS_ORANGE_BLOCK_WINDOW_MIN
+        for event in news_context.get("upcoming_events", [])
+    )
 
-    # Optional kill-switch: orange news (activated by BLOCK_ORANGE_NEWS=true)
-    if is_orange_news_kill_switch():
-        log.warning("ORANGE NEWS KILL SWITCH — signal rejected")
-        alert = _build_alert(signal, {}, "NO_GO", "Kill-switch news orange", "", "", "none")
-        session.add(alert)
-        session.commit()
-        blocked_msg = format_no_go_news(signal, "News orange USD dans ≤5min")
-        send_message(blocked_msg)
-        return {"status": "blocked", "reason": "orange_news_kill_switch"}
+    if red_imminent and settings.HARD_BLOCK_RED_NEWS:
+        return _persist_blocked(
+            session,
+            signal,
+            news_context,
+            "red_news_kill_switch",
+            "News rouge USD/EUR imminente",
+        )
 
-    # Enrich with news context
-    news_context = get_news_context(window_minutes=60, direction=signal.get("direction"))
+    if orange_imminent and settings.BLOCK_ORANGE_NEWS:
+        return _persist_blocked(
+            session,
+            signal,
+            news_context,
+            "orange_news_kill_switch",
+            "News orange USD/EUR imminente",
+        )
 
-    # LLM verdict
     verdict, provider = get_verdict(signal, news_context)
-
-    # Format and send Telegram
-    text = format_alert(signal, verdict, provider)
+    text = format_alert(signal, verdict, provider, news_context)
     msg_id = send_message(text)
 
-    # Persist
     verdict_str = verdict.get("verdict", "") if verdict else ""
-    reasoning = verdict.get("reason_short", "") if verdict else ""
-    risk = verdict.get("risk_main", "") if verdict else ""
-    action = verdict.get("action", "") if verdict else ""
-
+    impact_level = verdict.get("impact_level", "") if verdict else ""
     alert = _build_alert(
-        signal, news_context,
-        verdict_str, reasoning, risk, action, provider,
+        signal,
+        news_context,
+        verdict_str,
+        impact_level,
+        verdict.get("reason_short", "") if verdict else "",
+        verdict.get("risk_main", "") if verdict else "",
+        verdict.get("action", "") if verdict else "",
+        provider,
         telegram_sent=msg_id is not None,
         telegram_message_id=msg_id,
     )
     session.add(alert)
     session.commit()
+    session.refresh(alert)
 
-    log.info("Alert #%d saved — verdict=%s provider=%s tg_sent=%s",
-             alert.id, verdict_str, provider, msg_id is not None)
-
+    log.info(
+        "Alert #%d saved — verdict=%s impact=%s provider=%s tg_sent=%s",
+        alert.id,
+        verdict_str,
+        impact_level,
+        provider,
+        msg_id is not None,
+    )
     return {
         "status": "ok",
         "alert_id": alert.id,
         "verdict": verdict_str,
+        "impact_level": impact_level,
         "provider": provider,
+        "telegram_sent": msg_id is not None,
+    }
+
+
+def _persist_blocked(
+    session: Session,
+    signal: dict,
+    news_context: dict,
+    reason: str,
+    message_reason: str,
+) -> dict:
+    log.warning("Explicit news kill-switch — signal blocked: %s", reason)
+    text = format_no_go_news(signal, message_reason)
+    msg_id = send_message(text)
+    alert = _build_alert(
+        signal,
+        news_context,
+        "NO_GO",
+        "HIGH" if reason.startswith("red") else "MODERATE",
+        message_reason,
+        message_reason,
+        "Ne pas entrer en position",
+        "none",
+        telegram_sent=msg_id is not None,
+        telegram_message_id=msg_id,
+    )
+    session.add(alert)
+    session.commit()
+    session.refresh(alert)
+    return {
+        "status": "blocked",
+        "alert_id": alert.id,
+        "reason": reason,
+        "verdict": "NO_GO",
+        "impact_level": alert.llm_impact_level,
+        "provider": "none",
         "telegram_sent": msg_id is not None,
     }
 
@@ -96,6 +146,7 @@ def _build_alert(
     signal: dict,
     news_context: dict,
     verdict_str: str,
+    impact_level: str,
     reasoning: str,
     risk: str,
     action: str,
@@ -105,21 +156,22 @@ def _build_alert(
     error: str | None = None,
 ) -> Alert:
     return Alert(
-        signal_id=signal.get("id", str(uuid.uuid4())),
+        signal_id=str(signal.get("id") or uuid.uuid4()),
         received_at=datetime.now(tz=timezone.utc),
-        symbol=signal.get("symbol", "XAUUSD"),
-        tier=signal.get("tier", "?"),
+        symbol=signal.get("symbol", settings.SYMBOL),
+        setup=signal.get("setup", "?"),
         direction=signal.get("direction", "?"),
         pattern=signal.get("pattern", "?"),
-        killzone=signal.get("killzone", "?"),
-        entry_zone_low=signal.get("entry_zone_low", 0.0),
-        entry_zone_high=signal.get("entry_zone_high", 0.0),
-        stop_loss=signal.get("stop_loss", 0.0),
-        take_profit=signal.get("take_profit", 0.0),
-        confluence_score=signal.get("confluence_score", 0),
+        killzone=signal.get("killzone", ""),
+        killzone_match=bool(signal.get("killzone_match", False)),
+        entry=float(signal.get("entry", 0.0)),
+        sl=float(signal.get("sl", 0.0)),
+        tp1=float(signal.get("tp1", 0.0)),
+        tp_final=float(signal.get("tp_final", 0.0)),
         signal_json=json.dumps(signal, default=str),
         news_context=json.dumps(news_context, default=str),
         llm_verdict=verdict_str,
+        llm_impact_level=impact_level,
         llm_reasoning=reasoning,
         llm_risk=risk,
         llm_action=action,

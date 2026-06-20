@@ -10,10 +10,14 @@ load_dotenv(dotenv_path=_root_env if _root_env.exists() else None)
 class Settings:
     WEBHOOK_HMAC_SECRET: str = os.getenv("WEBHOOK_HMAC_SECRET", "")
 
+    SYMBOL: str = os.getenv("SYMBOL", "EURUSD")
+
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "5"))
 
     BLOCK_ORANGE_NEWS: bool = os.getenv("BLOCK_ORANGE_NEWS", "false").lower() == "true"
+    HARD_BLOCK_RED_NEWS: bool = os.getenv("HARD_BLOCK_RED_NEWS", "false").lower() == "true"
+    NEWS_WATCHED_CURRENCIES: str = os.getenv("NEWS_WATCHED_CURRENCIES", "USD,EUR")
     NEWS_ORANGE_BLOCK_WINDOW_MIN: int = int(os.getenv("NEWS_ORANGE_BLOCK_WINDOW_MIN", "5"))
 
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
