@@ -19,6 +19,9 @@ class Config:
     SYMBOL: str = os.getenv("SYMBOL", "EURUSDm")
     PIP: float = 0.0001  # safe EURUSD default; resolved from the live symbol at startup
     SCAN_INTERVAL_SECONDS: int = int(os.getenv("SCAN_INTERVAL_SECONDS", "30"))
+    TRACKER_DB_PATH: str = os.getenv("TRACKER_DB_PATH", "data/eurotruck.db")
+    TRACKER_TICK_SECONDS: int = int(os.getenv("TRACKER_TICK_SECONDS", "30"))
+    PARTIAL_TP_FRACTION: float = float(os.getenv("PARTIAL_TP_FRACTION", "0.5"))
 
     BACKEND_WEBHOOK_URL: str = os.getenv("BACKEND_WEBHOOK_URL", "")
     WEBHOOK_HMAC_SECRET: str = os.getenv("WEBHOOK_HMAC_SECRET", "")

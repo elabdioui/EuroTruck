@@ -19,6 +19,9 @@ from config import cfg
 from strategy import (
     is_in_killzone, minutes_to_next_killzone, get_active_killzone,
 )
+from tracker import record_signal as tracker_record
+from tracker import tick as tracker_tick
+from tracker import init_db as tracker_init
 from webhook import send_signal
 
 os.makedirs("logs", exist_ok=True)
@@ -108,6 +111,10 @@ def scan_once() -> None:
                  signal["setup"], signal.get("direction"),
                  active_kz, signal["killzone_match"])
         send_signal(signal)
+        try:
+            tracker_record(signal)
+        except Exception:
+            log.exception("tracker_record failed — signal sent but not tracked")
         _last_sent[_cooldown_key(signal)] = now_utc
 
     stats.tick()
@@ -154,6 +161,11 @@ def main() -> None:
         next_run_time=datetime.now(tz=pytz.utc),
     )
     scheduler.add_job(heartbeat, "interval", minutes=cfg.HEARTBEAT_MINUTES, id="heartbeat")
+    tracker_init()
+    scheduler.add_job(
+        lambda: tracker_tick(lambda: mt5.get_current_price(cfg.SYMBOL)),
+        "interval", seconds=cfg.TRACKER_TICK_SECONDS, id="tracker_tick",
+    )
 
     log.info("Scheduler started — scanning every %ds", cfg.SCAN_INTERVAL_SECONDS)
     try:
