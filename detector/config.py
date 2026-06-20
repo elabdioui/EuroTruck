@@ -62,6 +62,9 @@ class Config:
     PDH_PDL_LOOKBACK_M5: int = int(os.getenv("PDH_PDL_LOOKBACK_M5", "24"))
     PDH_PDL_WICK_BODY_RATIO_MAX: float = float(os.getenv("PDH_PDL_WICK_BODY_RATIO_MAX", "0.5"))
     PDH_PDL_MIN_RISK_PIPS: float = float(os.getenv("PDH_PDL_MIN_RISK_PIPS", "5"))
+    SILVER_BULLET_NY_START_HOUR: int = int(os.getenv("SILVER_BULLET_NY_START_HOUR", "10"))
+    SILVER_BULLET_NY_END_HOUR: int = int(os.getenv("SILVER_BULLET_NY_END_HOUR", "11"))
+    SILVER_BULLET_MIN_RISK_PIPS: float = float(os.getenv("SILVER_BULLET_MIN_RISK_PIPS", "4"))
     LIQUIDITY_EQUAL_THRESHOLD: float = 0.50  # pips, equal high/low tolerance
     # Per-tier minimum confluence scores (old MIN_CONFLUENCE_SCORE=4 kept as fallback)
     MIN_CONFLUENCE_SCORE: int = 4
