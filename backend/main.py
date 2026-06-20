@@ -4,8 +4,11 @@ Reçoit les signaux, enrichit avec news + LLM, push Telegram.
 """
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from core.logger import setup_logging
 from core.config import settings
@@ -13,6 +16,7 @@ from db.database import create_db
 from api.signal import router as signal_router
 from api.health import router as health_router
 from api.logs import router as logs_router
+from api.dashboard import router as dashboard_router
 from services.news.aggregator import refresh_news
 from scheduler.news_refresh import start_news_scheduler
 
@@ -48,6 +52,15 @@ app = FastAPI(
 app.include_router(signal_router)
 app.include_router(health_router)
 app.include_router(logs_router)
+app.include_router(dashboard_router)
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard_page():
+    return FileResponse(_STATIC_DIR / "dashboard.html")
 
 
 if __name__ == "__main__":

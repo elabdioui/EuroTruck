@@ -26,6 +26,7 @@ class Settings:
     NEWS_RED_BLOCK_WINDOW_MIN: int = int(os.getenv("NEWS_RED_BLOCK_WINDOW_MIN", "15"))
 
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./alerts.db")
+    TRACKER_DB_PATH: str = os.getenv("TRACKER_DB_PATH", "data/eurotruck.db")
 
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     PORT: int = int(os.getenv("PORT", "8000"))
