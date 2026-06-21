@@ -46,11 +46,16 @@ class Config:
     OTE_LOW: float = 0.618              # shallow OTE boundary (Fibonacci ratio)
     OTE_HIGH: float = 0.786             # deep OTE boundary   (Fibonacci ratio)
     OTE_ENTRY_TOLERANCE_PIPS: float = float(os.getenv("OTE_ENTRY_TOLERANCE_PIPS", "1.0"))
-    ASIA_SESSION_START_UTC: int = int(os.getenv("ASIA_SESSION_START_UTC", "0"))
-    ASIA_SESSION_END_UTC: int = int(os.getenv("ASIA_SESSION_END_UTC", "6"))
     LONDON_JUDAS_LOOKBACK_M5: int = int(os.getenv("LONDON_JUDAS_LOOKBACK_M5", "12"))
     LONDON_JUDAS_MIN_RANGE_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RANGE_PIPS", "15"))
     LONDON_JUDAS_MIN_RISK_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RISK_PIPS", "5"))
+    LONDON_JUDAS_BIAS_EMA: int = int(os.getenv("LONDON_JUDAS_BIAS_EMA", "20"))
+    LONDON_JUDAS_REQUIRE_H4_BIAS: bool = os.getenv(
+        "LONDON_JUDAS_REQUIRE_H4_BIAS", "true"
+    ).lower() == "true"
+    LONDON_JUDAS_REQUIRE_FVG_OB: bool = os.getenv(
+        "LONDON_JUDAS_REQUIRE_FVG_OB", "true"
+    ).lower() == "true"
     OTE_CONT_MIN_IMPULSE_PIPS: float = float(os.getenv("OTE_CONT_MIN_IMPULSE_PIPS", "25"))
     OTE_CONT_MIN_RISK_PIPS: float = float(os.getenv("OTE_CONT_MIN_RISK_PIPS", "5"))
     OTE_CONT_BIAS_EMA: int = int(os.getenv("OTE_CONT_BIAS_EMA", "20"))

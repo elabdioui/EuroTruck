@@ -103,10 +103,16 @@ def valid_tf_data(direction="long", final_close=None):
         m5 = _long_m5(1.1008 if final_close is None else final_close)
     else:
         m5 = _short_m5(1.1041 if final_close is None else final_close)
+    h4 = _base_frame(30, "4h", "2026-01-15 08:00", price=1.1025)
+    step = 0.0005 if direction == "long" else -0.0005
+    for position in range(len(h4) - 1):
+        h4.iloc[position, h4.columns.get_loc("close")] = 1.1025 + position * step
+    # Deliberately opposite: the forming H4 candle must not affect the bias.
+    h4.iloc[-1, h4.columns.get_loc("close")] = 1.0 if direction == "long" else 1.2
     return {
         "M5": m5,
         "M15": _asia_frame(),
-        "H4": _base_frame(30, "4h", "2026-01-15 08:00"),
+        "H4": h4,
     }
 
 
@@ -117,11 +123,12 @@ def setup_config(monkeypatch):
     monkeypatch.setattr(cfg, "OTE_LOW", 0.618)
     monkeypatch.setattr(cfg, "OTE_HIGH", 0.786)
     monkeypatch.setattr(cfg, "OTE_ENTRY_TOLERANCE_PIPS", 1.0)
-    monkeypatch.setattr(cfg, "ASIA_SESSION_START_UTC", 0)
-    monkeypatch.setattr(cfg, "ASIA_SESSION_END_UTC", 6)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_LOOKBACK_M5", 12)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RANGE_PIPS", 15.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RISK_PIPS", 5.0)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_BIAS_EMA", 20)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", True)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", True)
     monkeypatch.setattr(cfg, "SL_BUFFER_PIPS", 3.0)
 
 
@@ -183,7 +190,9 @@ def test_scan_sweep_without_bos_returns_none():
 
 
 def test_scan_outside_ote_returns_none():
-    assert scan(valid_tf_data("long", final_close=1.1030)) is None
+    data = valid_tf_data("long")
+    _set_candle(data["M5"], -2, 1.1030, 1.1032, 1.1028)
+    assert scan(data) is None
 
 
 def test_signal_payload_has_required_fields():
