@@ -9,6 +9,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
 
@@ -159,6 +160,18 @@ def scan(tf_data: dict) -> dict | None:
     if risk <= 0 or risk / pip < cfg.PDH_PDL_MIN_RISK_PIPS:
         return _reject("risk below minimum")
 
+    tags = build_ict_tags(
+        tf_data,
+        direction,
+        entry_low,
+        entry_high,
+        swept_level=pdl if direction == "long" else pdh,
+    )
+    if cfg.PDH_PDL_REQUIRE_BIAS and not tags["h_bias_aligned"]:
+        return _reject("HTF bias not aligned")
+    if cfg.PDH_PDL_REQUIRE_FVG_OB and not tags["fvg_ob_confluence"]:
+        return _reject("no FVG/OB confluence in entry zone")
+
     signal = {
         "direction": direction,
         "pattern": PATTERN,
@@ -170,6 +183,7 @@ def scan(tf_data: dict) -> dict | None:
             "pdh": pdh,
             "pdl": pdl,
             "sweep_wick": float(sweep_wick),
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")

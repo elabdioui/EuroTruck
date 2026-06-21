@@ -9,9 +9,8 @@ from indicators.fibonacci import (
     compute_fib_from_sweep,
     compute_fib_from_sweep_bearish,
 )
-from indicators.fvg import detect_fvg
-from indicators.order_block import detect_order_blocks
 from indicators.structure import find_swings, get_recent_structure_break
+from .ict_tags import build_ict_tags
 from .killzone import get_session_window_utc
 from .registry import SetupSpec, register
 
@@ -53,27 +52,6 @@ def _find_sweep(
             return "long", position, low
         if high > asia_high >= close:
             return "short", position, high
-    return None
-
-
-def _ote_confluence(
-    frame: pd.DataFrame, direction: str, ote_low: float, ote_high: float
-) -> tuple[str, float, float] | None:
-    expected_type = "BULLISH" if direction == "long" else "BEARISH"
-    zones = [
-        ("FVG", float(item.bottom), float(item.top))
-        for item in detect_fvg(frame, min_size_pips=cfg.FVG_MIN_SIZE_PIPS)
-        if item.type == expected_type
-    ]
-    zones.extend(
-        ("OB", float(item.bottom), float(item.top))
-        for item in detect_order_blocks(frame, lookback=cfg.OB_LOOKBACK)
-        if item.type == expected_type
-    )
-    for kind, bottom, top in reversed(zones):
-        zone_low, zone_high = sorted((bottom, top))
-        if zone_low <= ote_high and zone_high >= ote_low:
-            return kind, zone_low, zone_high
     return None
 
 
@@ -131,10 +109,6 @@ def scan(tf_data: dict) -> dict | None:
     if pd.isna(h4_average) or pd.isna(h4_close):
         return _reject("insufficient H4 bias data")
     h4_bias = "long" if h4_close > h4_average else "short"
-    h4_bias_aligned = direction == h4_bias
-    if cfg.LONDON_JUDAS_REQUIRE_H4_BIAS and not h4_bias_aligned:
-        return _reject(f"sweep {direction} against H4 bias {h4_bias}")
-
     structure_m5 = m5c
     if "time" not in structure_m5.columns:
         structure_m5 = m5c.copy()
@@ -179,9 +153,17 @@ def scan(tf_data: dict) -> dict | None:
     if not ote_low <= entry <= ote_high:
         return _reject("current price outside OTE zone")
 
-    confluence = _ote_confluence(structure_m5, direction, ote_low, ote_high)
-    fvg_ob_confluence = confluence is not None
-    if cfg.LONDON_JUDAS_REQUIRE_FVG_OB and not fvg_ob_confluence:
+    tags = build_ict_tags(
+        tf_data,
+        direction,
+        ote_low,
+        ote_high,
+        bias_period=cfg.LONDON_JUDAS_BIAS_EMA,
+        swept_level=asia_low if direction == "long" else asia_high,
+    )
+    if cfg.JUDAS_REQUIRE_BIAS and not tags["h_bias_aligned"]:
+        return _reject(f"sweep {direction} against H4 bias {h4_bias}")
+    if cfg.JUDAS_REQUIRE_FVG_OB and not tags["fvg_ob_confluence"]:
         return _reject("no FVG/OB confluence in OTE zone")
 
     if direction == "long":
@@ -210,11 +192,9 @@ def scan(tf_data: dict) -> dict | None:
             "asia_low": asia_low,
             "bos_anchor": float(anchor.price),
             "h4_bias": h4_bias,
-            "h4_bias_aligned": h4_bias_aligned,
             "sweep_index": sweep_index,
             "sweep_extreme": sweep_extreme,
-            "fvg_ob_confluence": fvg_ob_confluence,
-            "ote_confluence": confluence[0] if confluence else None,
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")

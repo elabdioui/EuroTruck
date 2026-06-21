@@ -7,6 +7,7 @@ import stats
 from config import cfg
 from indicators.bias import ema
 from indicators.fvg import detect_fvg
+from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
 
@@ -112,6 +113,16 @@ def scan(tf_data: dict) -> dict | None:
         return _reject("risk below minimum")
 
     h1_bias, _ = _h1_bias(h1)
+    tags = build_ict_tags(
+        tf_data,
+        direction,
+        float(fvg.bottom),
+        float(fvg.top),
+        forced_fvg_ob=True,
+    )
+    tags["h_bias_aligned"] = h1_bias == direction
+    if cfg.SILVER_BULLET_REQUIRE_BIAS and not tags["h_bias_aligned"]:
+        return _reject("H1 bias not aligned")
     signal = {
         "direction": direction,
         "pattern": PATTERN,
@@ -124,6 +135,7 @@ def scan(tf_data: dict) -> dict | None:
             "fvg_bottom": float(fvg.bottom),
             "ny_hour": int(ny_now.hour),
             "h1_bias": h1_bias,
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")

@@ -135,6 +135,18 @@ def test_risk_below_minimum_returns_none(monkeypatch):
     assert scan(valid_tf_data("long")) is None
 
 
+def test_missing_confluences_are_tags_by_default():
+    signal = scan(valid_tf_data("long"))
+    assert signal is not None
+    assert signal["meta"]["h_bias_aligned"] is False
+    assert signal["meta"]["fvg_ob_confluence"] is False
+
+
+def test_optional_confluence_gate(monkeypatch):
+    monkeypatch.setattr(cfg, "OVERLAP_BOS_REQUIRE_FVG_OB", True)
+    assert scan(valid_tf_data("long")) is None
+
+
 def test_signal_payload_has_required_fields():
     signal = scan(valid_tf_data("long"))
     assert signal is not None
@@ -144,4 +156,7 @@ def test_signal_payload_has_required_fields():
     assert signal["pattern"] == PATTERN
     assert {
         "m15_bos_anchor", "displacement_extreme", "ny_hour"
-    } == set(signal["meta"])
+    } <= set(signal["meta"])
+    assert all(isinstance(signal["meta"][key], bool) for key in (
+        "h_bias_aligned", "fvg_ob_confluence", "liquidity_confluence"
+    ))

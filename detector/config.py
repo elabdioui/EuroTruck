@@ -42,6 +42,12 @@ class Config:
     FVG_MIN_SIZE_PIPS: float = 2.0      # minimum FVG size in symbol-driven pips
     OB_MIN_BODY_PIPS: float = 1.0       # doji filter; mirrors gold's 1-pip intent. Starting hypothesis.
     OB_LOOKBACK: int = 30               # candles to look back for OB detection
+    LIQUIDITY_EQUAL_TOLERANCE_PIPS: float = float(
+        os.getenv("LIQUIDITY_EQUAL_TOLERANCE_PIPS", "1")
+    )
+    LIQUIDITY_SWEEP_LOOKBACK_M5: int = int(
+        os.getenv("LIQUIDITY_SWEEP_LOOKBACK_M5", "30")
+    )
     SWING_LOOKBACK: int = 5             # candles each side for swing detection
     OTE_LOW: float = 0.618              # shallow OTE boundary (Fibonacci ratio)
     OTE_HIGH: float = 0.786             # deep OTE boundary   (Fibonacci ratio)
@@ -50,26 +56,44 @@ class Config:
     LONDON_JUDAS_MIN_RANGE_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RANGE_PIPS", "15"))
     LONDON_JUDAS_MIN_RISK_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RISK_PIPS", "5"))
     LONDON_JUDAS_BIAS_EMA: int = int(os.getenv("LONDON_JUDAS_BIAS_EMA", "20"))
-    LONDON_JUDAS_REQUIRE_H4_BIAS: bool = os.getenv(
-        "LONDON_JUDAS_REQUIRE_H4_BIAS", "false"
+    JUDAS_REQUIRE_BIAS: bool = os.getenv(
+        "JUDAS_REQUIRE_BIAS", "false"
     ).lower() == "true"
-    LONDON_JUDAS_REQUIRE_FVG_OB: bool = os.getenv(
-        "LONDON_JUDAS_REQUIRE_FVG_OB", "false"
+    JUDAS_REQUIRE_FVG_OB: bool = os.getenv(
+        "JUDAS_REQUIRE_FVG_OB", "false"
     ).lower() == "true"
     OTE_CONT_MIN_IMPULSE_PIPS: float = float(os.getenv("OTE_CONT_MIN_IMPULSE_PIPS", "25"))
     OTE_CONT_MIN_RISK_PIPS: float = float(os.getenv("OTE_CONT_MIN_RISK_PIPS", "5"))
     OTE_CONT_BIAS_EMA: int = int(os.getenv("OTE_CONT_BIAS_EMA", "20"))
+    OTE_CONT_REQUIRE_FVG_OB: bool = os.getenv(
+        "OTE_CONT_REQUIRE_FVG_OB", "false"
+    ).lower() == "true"
     PDH_PDL_LOOKBACK_M5: int = int(os.getenv("PDH_PDL_LOOKBACK_M5", "24"))
     PDH_PDL_WICK_BODY_RATIO_MAX: float = float(os.getenv("PDH_PDL_WICK_BODY_RATIO_MAX", "0.5"))
     PDH_PDL_MIN_RISK_PIPS: float = float(os.getenv("PDH_PDL_MIN_RISK_PIPS", "5"))
+    PDH_PDL_REQUIRE_BIAS: bool = os.getenv(
+        "PDH_PDL_REQUIRE_BIAS", "false"
+    ).lower() == "true"
+    PDH_PDL_REQUIRE_FVG_OB: bool = os.getenv(
+        "PDH_PDL_REQUIRE_FVG_OB", "false"
+    ).lower() == "true"
     SILVER_BULLET_NY_START_HOUR: int = int(os.getenv("SILVER_BULLET_NY_START_HOUR", "10"))
     SILVER_BULLET_NY_END_HOUR: int = int(os.getenv("SILVER_BULLET_NY_END_HOUR", "11"))
     SILVER_BULLET_MIN_RISK_PIPS: float = float(os.getenv("SILVER_BULLET_MIN_RISK_PIPS", "4"))
+    SILVER_BULLET_REQUIRE_BIAS: bool = os.getenv(
+        "SILVER_BULLET_REQUIRE_BIAS", "false"
+    ).lower() == "true"
     OVERLAP_BOS_NY_START_HOUR: int = int(os.getenv("OVERLAP_BOS_NY_START_HOUR", "8"))
     OVERLAP_BOS_NY_END_HOUR: int = int(os.getenv("OVERLAP_BOS_NY_END_HOUR", "10"))
     OVERLAP_BOS_FIB_LOW: float = float(os.getenv("OVERLAP_BOS_FIB_LOW", "0.5"))
     OVERLAP_BOS_FIB_HIGH: float = float(os.getenv("OVERLAP_BOS_FIB_HIGH", "0.79"))
     OVERLAP_BOS_MIN_RISK_PIPS: float = float(os.getenv("OVERLAP_BOS_MIN_RISK_PIPS", "6"))
+    OVERLAP_BOS_REQUIRE_BIAS: bool = os.getenv(
+        "OVERLAP_BOS_REQUIRE_BIAS", "false"
+    ).lower() == "true"
+    OVERLAP_BOS_REQUIRE_FVG_OB: bool = os.getenv(
+        "OVERLAP_BOS_REQUIRE_FVG_OB", "false"
+    ).lower() == "true"
     BREAKER_LOOKBACK_M5: int = int(os.getenv("BREAKER_LOOKBACK_M5", "50"))
     BREAKER_RETEST_TOLERANCE_PIPS: float = float(os.getenv("BREAKER_RETEST_TOLERANCE_PIPS", "1"))
     BREAKER_MIN_RISK_PIPS: float = float(os.getenv("BREAKER_MIN_RISK_PIPS", "5"))
