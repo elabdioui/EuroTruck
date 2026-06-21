@@ -51,10 +51,10 @@ class Config:
     LONDON_JUDAS_MIN_RISK_PIPS: float = float(os.getenv("LONDON_JUDAS_MIN_RISK_PIPS", "5"))
     LONDON_JUDAS_BIAS_EMA: int = int(os.getenv("LONDON_JUDAS_BIAS_EMA", "20"))
     LONDON_JUDAS_REQUIRE_H4_BIAS: bool = os.getenv(
-        "LONDON_JUDAS_REQUIRE_H4_BIAS", "true"
+        "LONDON_JUDAS_REQUIRE_H4_BIAS", "false"
     ).lower() == "true"
     LONDON_JUDAS_REQUIRE_FVG_OB: bool = os.getenv(
-        "LONDON_JUDAS_REQUIRE_FVG_OB", "true"
+        "LONDON_JUDAS_REQUIRE_FVG_OB", "false"
     ).lower() == "true"
     OTE_CONT_MIN_IMPULSE_PIPS: float = float(os.getenv("OTE_CONT_MIN_IMPULSE_PIPS", "25"))
     OTE_CONT_MIN_RISK_PIPS: float = float(os.getenv("OTE_CONT_MIN_RISK_PIPS", "5"))

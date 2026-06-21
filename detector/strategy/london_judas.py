@@ -131,7 +131,8 @@ def scan(tf_data: dict) -> dict | None:
     if pd.isna(h4_average) or pd.isna(h4_close):
         return _reject("insufficient H4 bias data")
     h4_bias = "long" if h4_close > h4_average else "short"
-    if cfg.LONDON_JUDAS_REQUIRE_H4_BIAS and direction != h4_bias:
+    h4_bias_aligned = direction == h4_bias
+    if cfg.LONDON_JUDAS_REQUIRE_H4_BIAS and not h4_bias_aligned:
         return _reject(f"sweep {direction} against H4 bias {h4_bias}")
 
     structure_m5 = m5c
@@ -179,7 +180,8 @@ def scan(tf_data: dict) -> dict | None:
         return _reject("current price outside OTE zone")
 
     confluence = _ote_confluence(structure_m5, direction, ote_low, ote_high)
-    if cfg.LONDON_JUDAS_REQUIRE_FVG_OB and confluence is None:
+    fvg_ob_confluence = confluence is not None
+    if cfg.LONDON_JUDAS_REQUIRE_FVG_OB and not fvg_ob_confluence:
         return _reject("no FVG/OB confluence in OTE zone")
 
     if direction == "long":
@@ -208,8 +210,10 @@ def scan(tf_data: dict) -> dict | None:
             "asia_low": asia_low,
             "bos_anchor": float(anchor.price),
             "h4_bias": h4_bias,
+            "h4_bias_aligned": h4_bias_aligned,
             "sweep_index": sweep_index,
             "sweep_extreme": sweep_extreme,
+            "fvg_ob_confluence": fvg_ob_confluence,
             "ote_confluence": confluence[0] if confluence else None,
         },
     }

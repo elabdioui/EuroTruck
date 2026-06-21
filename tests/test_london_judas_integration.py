@@ -18,8 +18,8 @@ def test_signal_recorded_in_tracker(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RANGE_PIPS", 15.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RISK_PIPS", 5.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_BIAS_EMA", 20)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", True)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", True)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", False)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", False)
     init_db(tmp_path / "integration.db")
 
     signal = scan(valid_tf_data("long"))

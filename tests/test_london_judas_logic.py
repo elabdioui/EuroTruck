@@ -26,8 +26,8 @@ def judas_config(monkeypatch):
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RANGE_PIPS", 15.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RISK_PIPS", 5.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_BIAS_EMA", 20)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", True)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", True)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", False)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", False)
     monkeypatch.setattr(cfg, "SL_BUFFER_PIPS", 3.0)
 
 
@@ -44,41 +44,52 @@ def test_sweep_requires_one_rejection_candle():
     assert _find_sweep(rejected, 1.1000, 1.1050) == ("long", 1, 1.0995)
 
 
-def test_h4_bias_rejects_countertrend_sweep():
+def test_countertrend_sweep_emits_with_false_alignment_tag():
     data = valid_tf_data("long")
     closes = data["H4"].columns.get_loc("close")
     for position in range(len(data["H4"]) - 1):
         data["H4"].iloc[position, closes] = 1.1200 - position * 0.0005
-    assert scan(data) is None
+    signal = scan(data)
+    assert signal is not None
+    assert signal["meta"]["h4_bias_aligned"] is False
 
 
 def test_h4_bias_allows_aligned_sweep():
-    assert scan(valid_tf_data("long")) is not None
+    signal = scan(valid_tf_data("long"))
+    assert signal is not None
+    assert signal["meta"]["h4_bias_aligned"] is True
 
 
-def test_fvg_or_ob_is_required_in_ote(monkeypatch):
+def test_missing_fvg_ob_emits_with_false_confluence_tag(monkeypatch):
     monkeypatch.setattr(cfg, "FVG_MIN_SIZE_PIPS", 10_000.0)
     monkeypatch.setattr(Config, "OB_MIN_BODY_PIPS", 10_000.0)
-    assert scan(valid_tf_data("long")) is None
+    signal = scan(valid_tf_data("long"))
+    assert signal is not None
+    assert signal["meta"]["fvg_ob_confluence"] is False
 
 
 def test_overlapping_fvg_allows_signal_and_sl_clears_sweep():
     signal = scan(valid_tf_data("long"))
     assert signal is not None
     assert signal["meta"]["ote_confluence"] == "FVG"
+    assert signal["meta"]["fvg_ob_confluence"] is True
     assert signal["sl"] < signal["meta"]["sweep_extreme"]
 
 
-def test_require_flags_can_be_disabled(monkeypatch):
+def test_h4_bias_gate_rejects_countertrend_sweep(monkeypatch):
     data = valid_tf_data("long")
     closes = data["H4"].columns.get_loc("close")
     for position in range(len(data["H4"]) - 1):
         data["H4"].iloc[position, closes] = 1.1200 - position * 0.0005
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", False)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", False)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", True)
+    assert scan(data) is None
+
+
+def test_fvg_ob_gate_rejects_missing_confluence(monkeypatch):
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", True)
     monkeypatch.setattr(cfg, "FVG_MIN_SIZE_PIPS", 10_000.0)
     monkeypatch.setattr(Config, "OB_MIN_BODY_PIPS", 10_000.0)
-    assert scan(data) is not None
+    assert scan(valid_tf_data("long")) is None
 
 
 def test_forming_m5_candle_is_ignored():
@@ -98,6 +109,8 @@ def test_signal_has_all_required_strategy_fields():
         "direction", "pattern", "entry", "sl", "tp1", "tp_final", "meta"
     ))
     assert signal["meta"]["ote_confluence"] is not None
+    assert signal["meta"]["h4_bias_aligned"] is not None
+    assert signal["meta"]["fvg_ob_confluence"] is not None
 
 
 @pytest.mark.parametrize(

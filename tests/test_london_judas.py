@@ -127,8 +127,8 @@ def setup_config(monkeypatch):
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RANGE_PIPS", 15.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_MIN_RISK_PIPS", 5.0)
     monkeypatch.setattr(cfg, "LONDON_JUDAS_BIAS_EMA", 20)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", True)
-    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", True)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_H4_BIAS", False)
+    monkeypatch.setattr(cfg, "LONDON_JUDAS_REQUIRE_FVG_OB", False)
     monkeypatch.setattr(cfg, "SL_BUFFER_PIPS", 3.0)
 
 
@@ -158,6 +158,8 @@ def test_scan_long_judas_full_pipeline():
     signal = scan(valid_tf_data("long"))
     assert signal is not None
     assert signal["direction"] == "long"
+    assert signal["meta"]["h4_bias_aligned"] is True
+    assert signal["meta"]["fvg_ob_confluence"] is True
     assert signal["sl"] < signal["entry"] < signal["tp1"] < signal["tp_final"]
     assert signal["tp_final"] - signal["entry"] == pytest.approx(
         2 * (signal["entry"] - signal["sl"])
@@ -168,6 +170,8 @@ def test_scan_short_judas_full_pipeline():
     signal = scan(valid_tf_data("short"))
     assert signal is not None
     assert signal["direction"] == "short"
+    assert signal["meta"]["h4_bias_aligned"] is True
+    assert signal["meta"]["fvg_ob_confluence"] is True
     assert signal["tp_final"] < signal["tp1"] < signal["entry"] < signal["sl"]
     assert signal["entry"] - signal["tp_final"] == pytest.approx(
         2 * (signal["sl"] - signal["entry"])
