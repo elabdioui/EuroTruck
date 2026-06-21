@@ -10,6 +10,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
 
@@ -153,6 +154,13 @@ def scan(tf_data: dict) -> dict | None:
     if risk <= 0 or risk / pip < cfg.OTE_CONT_MIN_RISK_PIPS:
         return _reject("risk too tight")
 
+    tags = build_ict_tags(
+        tf_data, direction, ote_low, ote_high, bias_period=cfg.OTE_CONT_BIAS_EMA
+    )
+    tags["h_bias_aligned"] = True
+    if cfg.OTE_CONT_REQUIRE_FVG_OB and not tags["fvg_ob_confluence"]:
+        return _reject("no FVG/OB confluence in OTE zone")
+
     signal = {
         "direction": direction,
         "pattern": PATTERN,
@@ -164,6 +172,7 @@ def scan(tf_data: dict) -> dict | None:
             "h4_ema": float(h4_ema),
             "impulse_low": float(impulse_low),
             "impulse_high": float(impulse_high),
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")

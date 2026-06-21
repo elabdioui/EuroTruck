@@ -36,13 +36,13 @@ def valid_tf_data(direction="long", formation_index=70, broken=True, retest=True
         _set_candle(m5, formation_index, 1.1000, 1.1010, 1.1011, 1.0999)
         _set_candle(m5, formation_index + 1, 1.1005, 1.1005, 1.1007, 1.0985)
         if broken:
-            m5.iloc[80, m5.columns.get_loc("high")] = 1.1020
+            _set_candle(m5, 80, 1.1005, 1.1020, 1.1021, 1.1003)
     else:
         # Bearish candle followed by bullish displacement => bullish OB.
         _set_candle(m5, formation_index, 1.1010, 1.1000, 1.1011, 1.0999)
         _set_candle(m5, formation_index + 1, 1.1005, 1.1005, 1.1025, 1.1003)
         if broken:
-            m5.iloc[80, m5.columns.get_loc("low")] = 1.0990
+            _set_candle(m5, 80, 1.1005, 1.0990, 1.1007, 1.0989)
     if not retest:
         m5.iloc[-1, m5.columns.get_loc("close")] = 1.1050
 
@@ -85,6 +85,12 @@ def test_ob_not_broken_returns_none():
     assert scan(valid_tf_data(broken=False)) is None
 
 
+def test_ob_wick_pierce_without_close_is_not_breaker():
+    data = valid_tf_data("long", broken=False)
+    data["M5"].iloc[80, data["M5"].columns.get_loc("high")] = 1.1020
+    assert scan(data) is None
+
+
 def test_long_breaker_full_pipeline():
     signal = scan(valid_tf_data("long"))
     assert signal is not None
@@ -121,7 +127,7 @@ def test_h1_bias_tag_when_disabled():
     data["H1"]["close"] = list(reversed(data["H1"]["close"].tolist()))
     signal = scan(data)
     assert signal is not None
-    assert signal["meta"]["h1_bias_aligned"] is False
+    assert signal["meta"]["h_bias_aligned"] is False
 
 
 def test_risk_below_minimum_returns_none(monkeypatch):
@@ -134,4 +140,8 @@ def test_signal_payload_has_required_fields():
     assert signal is not None
     assert {"direction", "pattern", "entry", "sl", "tp1", "tp_final", "meta"} <= signal.keys()
     assert signal["pattern"] == PATTERN
-    assert {"ob_top", "ob_bottom", "broken_at_index", "h1_bias_aligned"} == set(signal["meta"])
+    assert {"ob_top", "ob_bottom", "broken_at_index"} <= set(signal["meta"])
+    assert signal["meta"]["fvg_ob_confluence"] is True
+    assert all(isinstance(signal["meta"][key], bool) for key in (
+        "h_bias_aligned", "fvg_ob_confluence", "liquidity_confluence"
+    ))

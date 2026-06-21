@@ -168,6 +168,17 @@ def test_risk_below_minimum_returns_none(monkeypatch):
     assert scan(valid_tf_data("long")) is None
 
 
+def test_missing_confluence_is_tagged_by_default():
+    signal = scan(valid_tf_data("long"))
+    assert signal is not None
+    assert signal["meta"]["fvg_ob_confluence"] is False
+
+
+def test_optional_confluence_gate(monkeypatch):
+    monkeypatch.setattr(cfg, "OTE_CONT_REQUIRE_FVG_OB", True)
+    assert scan(valid_tf_data("long")) is None
+
+
 def test_signal_payload_has_required_fields():
     signal = scan(valid_tf_data("long"))
     assert signal is not None
@@ -175,4 +186,8 @@ def test_signal_payload_has_required_fields():
         "direction", "pattern", "entry", "sl", "tp1", "tp_final", "meta"
     }.issubset(signal)
     assert signal["pattern"] == PATTERN
-    assert {"h4_ema", "impulse_low", "impulse_high"} == set(signal["meta"])
+    assert {"h4_ema", "impulse_low", "impulse_high"} <= set(signal["meta"])
+    assert signal["meta"]["h_bias_aligned"] is True
+    assert all(isinstance(signal["meta"][key], bool) for key in (
+        "h_bias_aligned", "fvg_ob_confluence", "liquidity_confluence"
+    ))

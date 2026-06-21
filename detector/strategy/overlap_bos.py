@@ -10,6 +10,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
 
@@ -148,6 +149,12 @@ def scan(tf_data: dict) -> dict | None:
     if risk <= 0 or risk / pip < cfg.OVERLAP_BOS_MIN_RISK_PIPS:
         return _reject("risk below minimum")
 
+    tags = build_ict_tags(tf_data, direction, pullback_low, pullback_high)
+    if cfg.OVERLAP_BOS_REQUIRE_BIAS and not tags["h_bias_aligned"]:
+        return _reject("HTF bias not aligned")
+    if cfg.OVERLAP_BOS_REQUIRE_FVG_OB and not tags["fvg_ob_confluence"]:
+        return _reject("no FVG/OB confluence in pullback zone")
+
     signal = {
         "direction": direction,
         "pattern": PATTERN,
@@ -159,6 +166,7 @@ def scan(tf_data: dict) -> dict | None:
             "m15_bos_anchor": float(anchor.price),
             "displacement_extreme": float(displacement_extreme),
             "ny_hour": int(ny_now.hour),
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")

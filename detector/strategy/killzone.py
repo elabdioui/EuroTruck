@@ -1,5 +1,5 @@
 """Killzone filter — only allow signals during active ICT sessions."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 import pytz
 
@@ -23,6 +23,37 @@ KILLZONE_PRIORITY: dict[KillzoneName, str] = {
     "NY_PM": "secondary",
     "ASIA": "context",
 }
+
+
+def get_session_window_utc(
+    name: KillzoneName, dt: datetime
+) -> tuple[datetime, datetime]:
+    """Return the latest session window at ``dt`` using NY-local DST rules."""
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+
+    ny = dt.astimezone(_NY_TZ)
+    start_minutes, end_minutes = _KILLZONES_NY[name]
+    start_date = ny.date()
+    start_naive = datetime.combine(start_date, datetime.min.time()) + timedelta(
+        minutes=start_minutes
+    )
+    start = _NY_TZ.localize(start_naive)
+    if ny < start:
+        start_date -= timedelta(days=1)
+        start_naive = datetime.combine(start_date, datetime.min.time()) + timedelta(
+            minutes=start_minutes
+        )
+        start = _NY_TZ.localize(start_naive)
+
+    end_date = start_date
+    if end_minutes <= start_minutes:
+        end_date += timedelta(days=1)
+    end_naive = datetime.combine(end_date, datetime.min.time()) + timedelta(
+        minutes=end_minutes
+    )
+    end = _NY_TZ.localize(end_naive)
+    return start.astimezone(pytz.utc), end.astimezone(pytz.utc)
 
 
 def get_active_killzone(dt: datetime | None = None) -> KillzoneName | None:

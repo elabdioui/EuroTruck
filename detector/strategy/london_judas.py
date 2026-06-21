@@ -4,11 +4,14 @@ import pandas as pd
 
 import stats
 from config import cfg
+from indicators.bias import ema
 from indicators.fibonacci import (
     compute_fib_from_sweep,
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from .ict_tags import build_ict_tags
+from .killzone import get_session_window_utc
 from .registry import SetupSpec, register
 
 
@@ -36,19 +39,19 @@ def _has_market_columns(frame: pd.DataFrame) -> bool:
     return {"high", "low", "close"}.issubset(frame.columns)
 
 
-def _find_sweep(recent: pd.DataFrame, asia_low: float, asia_high: float) -> str | None:
-    last_close = float(recent.iloc[-1]["close"])
-    long_hit = float(recent["low"].min()) < asia_low and last_close > asia_low
-    short_hit = float(recent["high"].max()) > asia_high and last_close < asia_high
-
-    if long_hit and short_hit:
-        long_position = int(recent["low"].to_numpy().argmin())
-        short_position = int(recent["high"].to_numpy().argmax())
-        return "long" if long_position > short_position else "short"
-    if long_hit:
-        return "long"
-    if short_hit:
-        return "short"
+def _find_sweep(
+    recent: pd.DataFrame, asia_low: float, asia_high: float
+) -> tuple[str, int, float] | None:
+    """Return the latest single-candle sweep rejection in ``recent``."""
+    for position in range(len(recent) - 1, -1, -1):
+        bar = recent.iloc[position]
+        low = float(bar["low"])
+        high = float(bar["high"])
+        close = float(bar["close"])
+        if low < asia_low <= close:
+            return "long", position, low
+        if high > asia_high >= close:
+            return "short", position, high
     return None
 
 
@@ -62,33 +65,25 @@ def scan(tf_data: dict) -> dict | None:
         or not isinstance(h4, pd.DataFrame)
         or len(m15) < 96
         or len(m5) < 100
-        or len(h4) < 30
+        or len(h4) < max(30, cfg.LONDON_JUDAS_BIAS_EMA + 1)
         or not _has_market_columns(m15)
         or not _has_market_columns(m5)
+        or "close" not in h4.columns
     ):
         return _reject("insufficient data")
 
-    m15_times = _timestamps(m15)
-    m5_times = _timestamps(m5)
+    # MT5 includes the current forming candle as the final row on every timeframe.
+    m15c = m15.iloc[:-1]
+    m5c = m5.iloc[:-1]
+    h4c = h4.iloc[:-1]
+
+    m15_times = _timestamps(m15c)
+    m5_times = _timestamps(m5c)
     if m15_times is None or m5_times is None or pd.isna(m5_times[-1]):
         return _reject("missing UTC timestamps")
 
-    session_date = m5_times[-1].date()
-    session_start = pd.Timestamp(
-        year=session_date.year,
-        month=session_date.month,
-        day=session_date.day,
-        hour=cfg.ASIA_SESSION_START_UTC,
-        tz="UTC",
-    )
-    session_end = pd.Timestamp(
-        year=session_date.year,
-        month=session_date.month,
-        day=session_date.day,
-        hour=cfg.ASIA_SESSION_END_UTC,
-        tz="UTC",
-    )
-    asia = m15.loc[(m15_times >= session_start) & (m15_times < session_end)]
+    session_start, session_end = get_session_window_utc("ASIA", m5_times[-1].to_pydatetime())
+    asia = m15c.loc[(m15_times >= session_start) & (m15_times < session_end)]
     if asia.empty:
         return _reject("asia session unavailable")
 
@@ -102,21 +97,28 @@ def scan(tf_data: dict) -> dict | None:
     if asia_range_pips < cfg.LONDON_JUDAS_MIN_RANGE_PIPS:
         return _reject("asia range too tight")
 
-    recent = m5.iloc[-cfg.LONDON_JUDAS_LOOKBACK_M5:]
-    direction = _find_sweep(recent, asia_low, asia_high)
-    if direction is None:
-        return _reject("no asia range sweep rejection")
+    recent = m5c.iloc[-cfg.LONDON_JUDAS_LOOKBACK_M5:]
+    sweep = _find_sweep(recent, asia_low, asia_high)
+    if sweep is None:
+        return _reject("no asia sweep rejection candle")
+    direction, sweep_position, sweep_extreme = sweep
+    sweep_index = len(m5c) - len(recent) + sweep_position
 
-    structure_m5 = m5
+    h4_average = ema(h4c["close"], cfg.LONDON_JUDAS_BIAS_EMA).iloc[-1]
+    h4_close = pd.to_numeric(h4c["close"], errors="coerce").iloc[-1]
+    if pd.isna(h4_average) or pd.isna(h4_close):
+        return _reject("insufficient H4 bias data")
+    h4_bias = "long" if h4_close > h4_average else "short"
+    structure_m5 = m5c
     if "time" not in structure_m5.columns:
-        structure_m5 = m5.copy()
+        structure_m5 = m5c.copy()
         structure_m5["time"] = m5_times
     swings = find_swings(structure_m5, lookback=cfg.SWING_LOOKBACK)
     bos_direction = "BULLISH" if direction == "long" else "BEARISH"
     bos = get_recent_structure_break(
         structure_m5, swings, bos_direction, lookback_candles=20
     )
-    if bos is None:
+    if bos is None or bos.candle_idx <= sweep_index:
         return _reject(f"no {direction} M5 structure break")
 
     anchor_type = "LOW" if direction == "long" else "HIGH"
@@ -128,7 +130,7 @@ def scan(tf_data: dict) -> dict | None:
         return _reject(f"no confirmed {direction} BOS anchor")
     anchor = anchors[-1]
 
-    displacement = m5.iloc[anchor.index:]
+    displacement = m5c.iloc[anchor.index:]
     if direction == "long":
         displacement_extreme = float(displacement["high"].max())
         if displacement_extreme <= float(anchor.price):
@@ -144,20 +146,33 @@ def scan(tf_data: dict) -> dict | None:
             float(anchor.price), displacement_extreme, cfg.OTE_LOW, cfg.OTE_HIGH
         )
 
-    entry = float(m5.iloc[-1]["close"])
+    entry = float(m5c.iloc[-1]["close"])
     tolerance = cfg.OTE_ENTRY_TOLERANCE_PIPS * pip
     ote_low = min(fib.ote_low, fib.ote_high) - tolerance
     ote_high = max(fib.ote_low, fib.ote_high) + tolerance
     if not ote_low <= entry <= ote_high:
         return _reject("current price outside OTE zone")
 
+    tags = build_ict_tags(
+        tf_data,
+        direction,
+        ote_low,
+        ote_high,
+        bias_period=cfg.LONDON_JUDAS_BIAS_EMA,
+        swept_level=asia_low if direction == "long" else asia_high,
+    )
+    if cfg.JUDAS_REQUIRE_BIAS and not tags["h_bias_aligned"]:
+        return _reject(f"sweep {direction} against H4 bias {h4_bias}")
+    if cfg.JUDAS_REQUIRE_FVG_OB and not tags["fvg_ob_confluence"]:
+        return _reject("no FVG/OB confluence in OTE zone")
+
     if direction == "long":
-        sl = float(anchor.price) - cfg.SL_BUFFER_PIPS * pip
+        sl = min(float(anchor.price), sweep_extreme) - cfg.SL_BUFFER_PIPS * pip
         risk = entry - sl
         tp1 = entry + risk
         tp_final = entry + 2.0 * risk
     else:
-        sl = float(anchor.price) + cfg.SL_BUFFER_PIPS * pip
+        sl = max(float(anchor.price), sweep_extreme) + cfg.SL_BUFFER_PIPS * pip
         risk = sl - entry
         tp1 = entry - risk
         tp_final = entry - 2.0 * risk
@@ -176,6 +191,10 @@ def scan(tf_data: dict) -> dict | None:
             "asia_high": asia_high,
             "asia_low": asia_low,
             "bos_anchor": float(anchor.price),
+            "h4_bias": h4_bias,
+            "sweep_index": sweep_index,
+            "sweep_extreme": sweep_extreme,
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")

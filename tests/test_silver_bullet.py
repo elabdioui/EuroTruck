@@ -134,6 +134,11 @@ def test_risk_below_minimum_returns_none(monkeypatch):
     assert scan(valid_tf_data("long")) is None
 
 
+def test_optional_bias_gate(monkeypatch):
+    monkeypatch.setattr(cfg, "SILVER_BULLET_REQUIRE_BIAS", True)
+    assert scan(valid_tf_data("long")) is None
+
+
 def test_signal_payload_has_required_fields():
     signal = scan(valid_tf_data("long"))
     assert signal is not None
@@ -141,4 +146,8 @@ def test_signal_payload_has_required_fields():
         "direction", "pattern", "entry", "sl", "tp1", "tp_final", "meta"
     }.issubset(signal)
     assert signal["pattern"] == PATTERN
-    assert {"fvg_top", "fvg_bottom", "ny_hour", "h1_bias"} == set(signal["meta"])
+    assert {"fvg_top", "fvg_bottom", "ny_hour", "h1_bias"} <= set(signal["meta"])
+    assert signal["meta"]["fvg_ob_confluence"] is True
+    assert all(isinstance(signal["meta"][key], bool) for key in (
+        "h_bias_aligned", "fvg_ob_confluence", "liquidity_confluence"
+    ))

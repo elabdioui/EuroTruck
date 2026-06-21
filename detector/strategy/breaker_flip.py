@@ -8,6 +8,7 @@ import stats
 from config import cfg
 from indicators.bias import ema
 from indicators.order_block import OrderBlock, detect_order_blocks
+from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
 
@@ -63,10 +64,10 @@ def _broken_candidate(
     if after_formation.empty:
         return None
     if ob.type == "BULLISH":
-        broken = pd.to_numeric(after_formation["low"], errors="coerce") < float(ob.bottom)
+        broken = pd.to_numeric(after_formation["close"], errors="coerce") < float(ob.bottom)
         direction = "short"
     elif ob.type == "BEARISH":
-        broken = pd.to_numeric(after_formation["high"], errors="coerce") > float(ob.top)
+        broken = pd.to_numeric(after_formation["close"], errors="coerce") > float(ob.top)
         direction = "long"
     else:
         return None
@@ -131,8 +132,8 @@ def scan(tf_data: dict) -> dict | None:
     formation_index, broken_at_index, ob, direction = max(
         candidates, key=lambda item: item[0]
     )
-    h1_bias_aligned = _h1_direction(h1) == direction
-    if cfg.BREAKER_REQUIRE_H1_BIAS_ALIGN and not h1_bias_aligned:
+    h_bias_aligned = _h1_direction(h1) == direction
+    if cfg.BREAKER_REQUIRE_H1_BIAS_ALIGN and not h_bias_aligned:
         return _reject("H1 bias not aligned")
 
     # A flipped bearish OB supports longs below its body; a flipped bullish OB
@@ -150,6 +151,15 @@ def scan(tf_data: dict) -> dict | None:
     if risk <= 0 or risk / pip < cfg.BREAKER_MIN_RISK_PIPS:
         return _reject("risk below minimum")
 
+    tags = build_ict_tags(
+        tf_data,
+        direction,
+        float(ob.bottom),
+        float(ob.top),
+        forced_fvg_ob=True,
+    )
+    tags["h_bias_aligned"] = h_bias_aligned
+
     signal = {
         "direction": direction,
         "pattern": PATTERN,
@@ -161,7 +171,7 @@ def scan(tf_data: dict) -> dict | None:
             "ob_top": float(ob.top),
             "ob_bottom": float(ob.bottom),
             "broken_at_index": int(broken_at_index),
-            "h1_bias_aligned": bool(h1_bias_aligned),
+            **tags,
         },
     }
     stats.record(NAME, "EMIT")
