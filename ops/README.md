@@ -1,4 +1,4 @@
-# Operations Guide — xauusd-bot
+# Operations Guide — eurotruck-bot
 
 All commands are run from the repo root or any directory:
 
@@ -84,7 +84,7 @@ Use this when moving the bot to a new Windows VM.
 
 1. **Clone the repo**
    ```powershell
-   git clone <repo-url> C:\Bot\xauusd-bot
+   git clone <repo-url> C:\Bot\eurotruck-bot
    ```
 
 2. **Install MT5**
@@ -111,8 +111,8 @@ The script is idempotent — safe to re-run. It:
 - Checks preflight (Python, git, .env)
 - Creates `.venv` and installs dependencies
 - Discovers `terminal64.exe` and writes `MT5_PATH` to `.env`
-- Registers NSSM service `xauusd-backend`
-- Registers Task Scheduler task `xauusd-detector` (AtLogOn, interactive session)
+- Registers NSSM service `eurotruck-backend`
+- Registers Task Scheduler task `eurotruck-detector` (AtLogOn, interactive session)
 - Creates desktop shortcuts (Bot Status, Deconnexion Safe)
 - Prints autologon instructions
 

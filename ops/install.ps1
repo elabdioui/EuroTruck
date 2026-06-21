@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Idempotent bootstrap for a fresh Windows VM running xauusd-bot.
+    Idempotent bootstrap for a fresh Windows VM running eurotruck-bot.
 .NOTES
     Run once as Administrator AFTER: repo cloned, MT5 installed and logged in, .env copied.
     Safe to re-run — every step checks before acting and prints [OK]/[SKIP]/[FAIL].
@@ -23,8 +23,8 @@ $NssmSearch      = @(
     "C:\tools\nssm\nssm.exe"
 )
 
-$BackendService  = "xauusd-backend"
-$DetectorTask    = "xauusd-detector"
+$BackendService  = "eurotruck-backend"
+$DetectorTask    = "eurotruck-detector"
 $BackendDir      = Join-Path $RepoRoot "backend"
 $BackendMain     = "main:app"
 $LogDir          = Join-Path $RepoRoot "logs"
@@ -218,7 +218,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "xauusd detector — must run in interactive session for MT5 IPC" | Out-Null
+    -Description "eurotruck detector — must run in interactive session for MT5 IPC" | Out-Null
 
 Write-OK "Task '$DetectorTask' registered (AtLogOn, interactive, user=$env:USERNAME)"
 
