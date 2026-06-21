@@ -16,6 +16,7 @@ from tracker import get_open_signals, init_db, record_signal, tick
 def tracker_db(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "PIP", 0.0001)
     monkeypatch.setattr(cfg, "PARTIAL_TP_FRACTION", 0.5)
+    monkeypatch.setattr(cfg, "MODEL_SPREAD_COST", True)
     init_db(tmp_path / "tracker.db")
 
 
@@ -72,6 +73,8 @@ def test_record_signal_inserts_row():
     assert row["mae_pips"] == 0
     assert row["risk_pips"] == pytest.approx(10)
     assert row["planned_rr"] == pytest.approx(2)
+    assert row["entry_fill"] == pytest.approx(1.1000)
+    assert row["spread_pips"] == 0
     assert row["extra_json"]
 
 
@@ -122,3 +125,14 @@ def test_tick_sl_after_partial_long():
     row = _row(signal_id)
     assert row["status"] == "closed_be"
     assert row["realized_r"] == pytest.approx(0.5)
+
+
+def test_known_spread_reduces_realized_r_net():
+    signal = _signal()
+    signal["entry_fill"] = 1.1001
+    signal["meta"] = {"spread_pips": 2.0}
+    signal_id = record_signal(signal)
+    tick(lambda: {"bid": 1.0990, "ask": 1.0992, "mid": 1.0991})
+    row = _row(signal_id)
+    assert row["realized_r"] == -1.0
+    assert row["realized_r_net"] == pytest.approx(-1.1)

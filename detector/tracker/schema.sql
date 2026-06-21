@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS signal_lifecycle (
     killzone_match  INTEGER NOT NULL,
 
     entry           REAL    NOT NULL,
+    entry_fill      REAL    NOT NULL,
+    spread_pips     REAL    NOT NULL DEFAULT 0,
     sl              REAL    NOT NULL,
     tp1             REAL    NOT NULL,
     tp_final        REAL    NOT NULL,
@@ -17,6 +19,7 @@ CREATE TABLE IF NOT EXISTS signal_lifecycle (
     mfe_pips        REAL    NOT NULL DEFAULT 0,
     mae_pips        REAL    NOT NULL DEFAULT 0,
     realized_r      REAL,
+    realized_r_net  REAL,
 
     opened_at       TEXT    NOT NULL,
     partial_at      TEXT,

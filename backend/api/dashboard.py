@@ -19,8 +19,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 _CLOSED = ("closed_tp", "closed_be", "closed_sl")
 _EXPORT_COLUMNS = (
     "id", "setup", "direction", "pattern", "killzone", "killzone_match",
-    "entry", "sl", "tp1", "tp_final", "risk_pips", "planned_rr", "status",
-    "mfe_pips", "mae_pips", "realized_r", "opened_at", "partial_at", "closed_at",
+    "entry", "entry_fill", "spread_pips", "sl", "tp1", "tp_final",
+    "risk_pips", "planned_rr", "status", "mfe_pips", "mae_pips",
+    "realized_r", "realized_r_net", "opened_at", "partial_at", "closed_at",
 )
 
 

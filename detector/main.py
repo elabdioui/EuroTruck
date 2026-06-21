@@ -98,6 +98,19 @@ def scan_once() -> None:
         if signal is None:
             continue
 
+        quote = mt5.get_current_quote(cfg.SYMBOL)
+        meta = signal.setdefault("meta", {})
+        if quote is None:
+            meta["spread_pips"] = None
+            log.warning("Spread unavailable for %s", spec.name)
+        else:
+            meta["spread_pips"] = (quote["ask"] - quote["bid"]) / float(cfg.PIP)
+            meta["bid"] = quote["bid"]
+            meta["ask"] = quote["ask"]
+            signal["entry_fill"] = (
+                quote["ask"] if signal["direction"] == "long" else quote["bid"]
+            )
+
         signal["setup"] = spec.name
         signal["killzone"] = active_kz
         signal["killzone_match"] = (
@@ -165,7 +178,7 @@ def main() -> None:
     scheduler.add_job(heartbeat, "interval", minutes=cfg.HEARTBEAT_MINUTES, id="heartbeat")
     tracker_init()
     scheduler.add_job(
-        lambda: tracker_tick(lambda: mt5.get_current_price(cfg.SYMBOL)),
+        lambda: tracker_tick(lambda: mt5.get_current_quote(cfg.SYMBOL)),
         "interval", seconds=cfg.TRACKER_TICK_SECONDS, id="tracker_tick",
     )
 

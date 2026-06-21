@@ -92,6 +92,16 @@ def get_current_price(symbol: str) -> float | None:
     return (tick.bid + tick.ask) / 2
 
 
+def get_current_quote(symbol: str) -> dict[str, float] | None:
+    """Return executable bid/ask prices plus their midpoint."""
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return None
+    bid = float(tick.bid)
+    ask = float(tick.ask)
+    return {"bid": bid, "ask": ask, "mid": (bid + ask) / 2.0}
+
+
 def get_all_timeframes(symbol: str) -> dict[str, pd.DataFrame]:
     return {
         "M1": get_ohlc(symbol, "M1", cfg.OHLC_COUNT_M1),

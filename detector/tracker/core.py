@@ -60,6 +60,22 @@ def init_db(db_path: str | Path | None = None) -> None:
     schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
     with _connect() as connection:
         connection.executescript(schema)
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(signal_lifecycle)")
+        }
+        migrations = {
+            "entry_fill": "REAL",
+            "spread_pips": "REAL NOT NULL DEFAULT 0",
+            "realized_r_net": "REAL",
+        }
+        for name, definition in migrations.items():
+            if name not in columns:
+                connection.execute(
+                    f"ALTER TABLE signal_lifecycle ADD COLUMN {name} {definition}"
+                )
+        connection.execute(
+            "UPDATE signal_lifecycle SET entry_fill = entry WHERE entry_fill IS NULL"
+        )
 
 
 def record_signal(signal: dict) -> int:
@@ -74,6 +90,7 @@ def record_signal(signal: dict) -> int:
         raise ValueError("direction must be LONG or SHORT")
 
     entry = float(signal["entry"])
+    entry_fill = float(signal.get("entry_fill", entry))
     sl = float(signal["sl"])
     tp_final = float(signal["tp_final"])
     pip = float(cfg.PIP)
@@ -89,16 +106,18 @@ def record_signal(signal: dict) -> int:
     planned_rr = target_move / risk
     now = _utc_now()
     payload = json.dumps(signal, default=str, sort_keys=True)
+    spread_pips = signal.get("meta", {}).get("spread_pips")
+    spread_pips = 0.0 if spread_pips is None else float(spread_pips)
 
     with _connect() as connection:
         cursor = connection.execute(
             """
             INSERT INTO signal_lifecycle (
                 setup, direction, pattern, killzone, killzone_match,
-                entry, sl, tp1, tp_final, risk_pips, planned_rr,
-                status, mfe_pips, mae_pips, realized_r,
+                entry, entry_fill, spread_pips, sl, tp1, tp_final, risk_pips, planned_rr,
+                status, mfe_pips, mae_pips, realized_r, realized_r_net,
                 opened_at, partial_at, closed_at, last_tick_at, extra_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', 0, 0, NULL,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', 0, 0, NULL, NULL,
                       ?, NULL, NULL, ?, ?)
             """,
             (
@@ -108,6 +127,8 @@ def record_signal(signal: dict) -> int:
                 signal.get("killzone"),
                 int(bool(signal["killzone_match"])),
                 entry,
+                entry_fill,
+                spread_pips,
                 sl,
                 float(signal["tp1"]),
                 tp_final,
@@ -135,9 +156,52 @@ def _level_hit(direction: str, price: float, level: float, kind: str) -> bool:
     return price >= level if direction == "long" else price <= level
 
 
-def _tick_signal(signal: dict, current_price: float) -> None:
+def _quote_prices(value) -> tuple[float, float, float]:
+    if isinstance(value, dict):
+        bid = float(value["bid"])
+        ask = float(value["ask"])
+        return bid, ask, float(value.get("mid", (bid + ask) / 2.0))
+    price = float(value)
+    return price, price, price
+
+
+def _net_realized_r(signal: dict, status: str) -> float | None:
+    if not cfg.MODEL_SPREAD_COST:
+        return signal.get("realized_r")
     direction = signal["direction"]
     entry = float(signal["entry"])
+    entry_fill = float(signal.get("entry_fill") or entry)
+    risk = abs(entry - float(signal["sl"]))
+    if risk <= 0:
+        return None
+
+    def net_at(price: float) -> float:
+        move = price - entry_fill if direction == "long" else entry_fill - price
+        return move / risk
+
+    fraction = float(cfg.PARTIAL_TP_FRACTION)
+    if status == "closed_sl":
+        return net_at(float(signal["sl"]))
+    if status in {"partial", "closed_be"}:
+        return fraction * net_at(float(signal["tp1"])) + (
+            (1.0 - fraction) * net_at(entry)
+        )
+    if status == "closed_tp":
+        return fraction * net_at(float(signal["tp1"])) + (
+            (1.0 - fraction) * net_at(float(signal["tp_final"]))
+        )
+    return None
+
+
+def _tick_signal(signal: dict, quote) -> None:
+    direction = signal["direction"]
+    entry = float(signal["entry"])
+    bid, ask, mid = _quote_prices(quote)
+    current_price = (
+        bid if cfg.MODEL_SPREAD_COST and direction == "long"
+        else ask if cfg.MODEL_SPREAD_COST and direction == "short"
+        else mid
+    )
     excursion = (
         current_price - entry if direction == "long" else entry - current_price
     ) / float(cfg.PIP)
@@ -147,6 +211,7 @@ def _tick_signal(signal: dict, current_price: float) -> None:
     partial_at = signal["partial_at"]
     closed_at = signal["closed_at"]
     realized_r = signal["realized_r"]
+    realized_r_net = signal.get("realized_r_net")
     now = _utc_now()
 
     effective_sl = entry if status == "partial" else float(signal["sl"])
@@ -175,11 +240,13 @@ def _tick_signal(signal: dict, current_price: float) -> None:
             )
             closed_at = now
 
+    realized_r_net = _net_realized_r({**signal, "realized_r": realized_r}, status)
+
     with _connect() as connection:
         connection.execute(
             """
             UPDATE signal_lifecycle
-            SET status = ?, mfe_pips = ?, mae_pips = ?, realized_r = ?,
+            SET status = ?, mfe_pips = ?, mae_pips = ?, realized_r = ?, realized_r_net = ?,
                 partial_at = ?, closed_at = ?, last_tick_at = ?
             WHERE id = ?
             """,
@@ -188,6 +255,7 @@ def _tick_signal(signal: dict, current_price: float) -> None:
                 mfe_pips,
                 mae_pips,
                 realized_r,
+                realized_r_net,
                 partial_at,
                 closed_at,
                 now,
@@ -196,7 +264,7 @@ def _tick_signal(signal: dict, current_price: float) -> None:
         )
 
 
-def tick(get_price_callable: Callable[[], float]) -> None:
+def tick(get_price_callable: Callable[[], object]) -> None:
     try:
         signals = get_open_signals()
         if not signals:
@@ -204,11 +272,11 @@ def tick(get_price_callable: Callable[[], float]) -> None:
 
         for signal in signals:
             try:
-                current_price = get_price_callable()
-                if current_price is None:
+                quote = get_price_callable()
+                if quote is None:
                     log.warning("tracker_tick skipped signal %s: current price unavailable", signal["id"])
                     continue
-                _tick_signal(signal, float(current_price))
+                _tick_signal(signal, quote)
             except Exception:
                 log.exception("tracker_tick failed for signal %s", signal.get("id"))
     except Exception:
