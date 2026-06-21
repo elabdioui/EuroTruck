@@ -125,11 +125,14 @@ def scan_once() -> None:
         log.info("SIGNAL %s %s — kz=%s match=%s",
                  signal["setup"], signal.get("direction"),
                  active_kz, signal["killzone_match"])
-        send_signal(signal)
         try:
             tracker_record(signal)
         except Exception:
-            log.exception("tracker_record failed — signal sent but not tracked")
+            log.exception("tracker_record failed; signal not sent")
+            continue
+        if not send_signal(signal):
+            log.warning("Signal tracked but delivery failed: setup=%s", signal["setup"])
+            continue
         _last_sent[_cooldown_key(signal)] = now_utc
 
     stats.tick()
