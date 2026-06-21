@@ -97,7 +97,18 @@ def test_no_fvg_in_window_returns_none():
 
 
 def test_fvg_not_mitigated_returns_none():
-    assert scan(valid_tf_data(mitigated=False)) is None
+    data = valid_tf_data()
+    _set_candle(data["M5"], -2, 1.1016, 1.1016, 1.1017, 1.1015)
+    assert scan(data) is None
+
+
+def test_forming_candle_does_not_change_signal():
+    data = valid_tf_data("long")
+    expected = scan(data)
+    _set_candle(data["M5"], -1, 1.2000, 1.2000, 1.3000, 0.9000)
+    actual = scan(data)
+    assert actual is not None and expected is not None
+    assert actual["entry"] == expected["entry"]
 
 
 def test_long_silver_bullet_full_pipeline():

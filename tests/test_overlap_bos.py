@@ -88,7 +88,16 @@ def test_insufficient_data_returns_none():
 
 
 def test_outside_sub_window_returns_none():
-    assert scan(valid_tf_data(end="2026-01-15 15:00")) is None
+    assert scan(valid_tf_data(end="2026-01-15 15:10")) is None
+
+
+def test_forming_candle_does_not_change_signal():
+    data = valid_tf_data("long")
+    expected = scan(data)
+    _set_candle(data["M5"], -1, 1.2000, 1.2000, 1.3000, 0.9000)
+    actual = scan(data)
+    assert actual is not None and expected is not None
+    assert actual["entry"] == expected["entry"]
 
 
 def test_no_m15_bos_returns_none():

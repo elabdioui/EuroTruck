@@ -145,7 +145,18 @@ def test_no_reversal_bos_returns_none():
 
 
 def test_outside_entry_zone_returns_none():
-    assert scan(valid_tf_data("long", entry=1.1020)) is None
+    data = valid_tf_data("long")
+    _set_candle(data["M5"], -2, 1.1020, 1.1020, 1.1021, 1.1019)
+    assert scan(data) is None
+
+
+def test_forming_candle_does_not_change_signal():
+    data = valid_tf_data("long")
+    expected = scan(data)
+    _set_candle(data["M5"], -1, 1.2000, 1.2000, 1.3000, 0.9000)
+    actual = scan(data)
+    assert actual is not None and expected is not None
+    assert actual["entry"] == expected["entry"]
 
 
 def test_risk_below_minimum_returns_none(monkeypatch):

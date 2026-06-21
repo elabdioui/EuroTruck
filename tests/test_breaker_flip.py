@@ -112,7 +112,18 @@ def test_short_breaker_full_pipeline():
 
 
 def test_not_retesting_now_returns_none():
-    assert scan(valid_tf_data(retest=False)) is None
+    data = valid_tf_data()
+    data["M5"].iloc[-2, data["M5"].columns.get_loc("close")] = 1.1050
+    assert scan(data) is None
+
+
+def test_forming_candle_does_not_change_signal():
+    data = valid_tf_data("long")
+    expected = scan(data)
+    _set_candle(data["M5"], -1, 1.2000, 1.2000, 1.3000, 0.9000)
+    actual = scan(data)
+    assert actual is not None and expected is not None
+    assert actual["entry"] == expected["entry"]
 
 
 def test_h1_bias_filter_applied_when_enabled(monkeypatch):
