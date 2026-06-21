@@ -22,6 +22,8 @@ class Config:
     TRACKER_DB_PATH: str = os.getenv("TRACKER_DB_PATH", "data/eurotruck.db")
     TRACKER_TICK_SECONDS: int = int(os.getenv("TRACKER_TICK_SECONDS", "30"))
     PARTIAL_TP_FRACTION: float = float(os.getenv("PARTIAL_TP_FRACTION", "0.5"))
+    MODEL_SPREAD_COST: bool = os.getenv("MODEL_SPREAD_COST", "true").lower() == "true"
+    TRADE_MAX_AGE_HOURS: float = float(os.getenv("TRADE_MAX_AGE_HOURS", "48"))
 
     BACKEND_WEBHOOK_URL: str = os.getenv("BACKEND_WEBHOOK_URL", "")
     WEBHOOK_HMAC_SECRET: str = os.getenv("WEBHOOK_HMAC_SECRET", "")

@@ -7,6 +7,7 @@ import stats
 from config import cfg
 from indicators.bias import ema
 from indicators.fvg import detect_fvg
+from ._bars import closed
 from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
@@ -56,7 +57,10 @@ def scan(tf_data: dict) -> dict | None:
     ):
         return _reject("insufficient data")
 
-    m5_times = _timestamps(m5)
+    m5c = closed(m5)
+    h1c = closed(h1)
+
+    m5_times = _timestamps(m5c)
     if m5_times is None:
         return _reject("insufficient data")
     ny_now = m5_times[-1].tz_convert(_NY_TZ)
@@ -70,7 +74,7 @@ def scan(tf_data: dict) -> dict | None:
     pip = float(cfg.PIP)
     if pip <= 0:
         return _reject("invalid pip size")
-    structure_m5 = m5.copy()
+    structure_m5 = m5c.copy()
     structure_m5["time"] = m5_times
     fvgs = detect_fvg(structure_m5, min_size_pips=0.0)
     window_start = ny_now.normalize() + pd.Timedelta(
@@ -91,7 +95,7 @@ def scan(tf_data: dict) -> dict | None:
         return _reject("no FVG in window")
     fvg = window_fvgs[-1]
 
-    current_price = float(pd.to_numeric(m5["close"], errors="coerce").iloc[-1])
+    current_price = float(pd.to_numeric(m5c["close"], errors="coerce").iloc[-1])
     zone_low = min(float(fvg.bottom), float(fvg.top))
     zone_high = max(float(fvg.bottom), float(fvg.top))
     if pd.isna(current_price) or not zone_low <= current_price <= zone_high:
@@ -112,7 +116,7 @@ def scan(tf_data: dict) -> dict | None:
     if risk <= 0 or risk / pip < cfg.SILVER_BULLET_MIN_RISK_PIPS:
         return _reject("risk below minimum")
 
-    h1_bias, _ = _h1_bias(h1)
+    h1_bias, _ = _h1_bias(h1c)
     tags = build_ict_tags(
         tf_data,
         direction,

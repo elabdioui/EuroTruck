@@ -10,6 +10,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from ._bars import closed
 from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
@@ -86,19 +87,23 @@ def scan(tf_data: dict) -> dict | None:
     ):
         return _reject("insufficient data")
 
+    m15c = closed(m15)
+    m5c = closed(m5)
+    h4c = closed(h4)
+
     pip = float(cfg.PIP)
     if pip <= 0:
         return _reject("invalid pip size")
 
-    h4_ema = ema(h4["close"], cfg.OTE_CONT_BIAS_EMA).iloc[-1]
-    h4_close = pd.to_numeric(h4["close"], errors="coerce").iloc[-1]
+    h4_ema = ema(h4c["close"], cfg.OTE_CONT_BIAS_EMA).iloc[-1]
+    h4_close = pd.to_numeric(h4c["close"], errors="coerce").iloc[-1]
     if pd.isna(h4_ema) or pd.isna(h4_close) or h4_ema == 0:
         return _reject("insufficient data")
     if abs(h4_close - h4_ema) / abs(h4_ema) < 0.001:
         return _reject("h4 bias unclear")
     direction = "long" if h4_close > h4_ema else "short"
 
-    impulse = m15.iloc[-24:]
+    impulse = m15c.iloc[-24:]
     if impulse[["high", "low"]].apply(pd.to_numeric, errors="coerce").isna().any().any():
         return _reject("insufficient data")
     impulse_low, impulse_high = _find_impulse(impulse, direction)
@@ -116,14 +121,14 @@ def scan(tf_data: dict) -> dict | None:
         )
         anchor = impulse_high
 
-    entry = float(pd.to_numeric(m5["close"], errors="coerce").iloc[-1])
+    entry = float(pd.to_numeric(m5c["close"], errors="coerce").iloc[-1])
     tolerance = cfg.OTE_ENTRY_TOLERANCE_PIPS * pip
     ote_low = min(fib.ote_low, fib.ote_high) - tolerance
     ote_high = max(fib.ote_low, fib.ote_high) + tolerance
     if pd.isna(entry) or not ote_low <= entry <= ote_high:
         return _reject("outside OTE")
 
-    structure_m5 = _with_time_column(m5)
+    structure_m5 = _with_time_column(m5c)
     if structure_m5 is None:
         return _reject("insufficient data")
     swings = find_swings(structure_m5, lookback=cfg.SWING_LOOKBACK)
@@ -131,8 +136,8 @@ def scan(tf_data: dict) -> dict | None:
     bos = get_recent_structure_break(
         structure_m5, swings, bos_direction, lookback_candles=15
     )
-    recent_start = max(0, len(m5) - 15)
-    recent_closes = pd.to_numeric(m5["close"], errors="coerce").iloc[recent_start:]
+    recent_start = max(0, len(m5c) - 15)
+    recent_closes = pd.to_numeric(m5c["close"], errors="coerce").iloc[recent_start:]
     pullback_indices = [
         recent_start + offset
         for offset, price in enumerate(recent_closes)

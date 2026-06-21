@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Single entry-point for the xauusd-bot lifecycle.
+    Single entry-point for the eurotruck-bot lifecycle.
 .USAGE
     .\ops\bot.ps1 <command> [options]
     Commands: status | start | stop | restart [-All] | update [-All] | logs [backend|stats] | disconnect
@@ -18,8 +18,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # ── Configurable names (change here only) ────────────────────────────────────
-$BackendService = "xauusd-backend"
-$DetectorTask   = "xauusd-detector"
+$BackendService = "eurotruck-backend"
+$DetectorTask   = "eurotruck-detector"
 
 # ── Paths derived from script location — never hardcoded ─────────────────────
 $RepoRoot   = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -60,7 +60,7 @@ function Get-ActiveSessionId {
 
 function Invoke-Status {
     Write-Host ""
-    Write-Host "=== xauusd-bot status ===" -ForegroundColor Yellow
+    Write-Host "=== eurotruck-bot status ===" -ForegroundColor Yellow
 
     # Backend service
     $svc = Get-Service -Name $BackendService -ErrorAction SilentlyContinue
@@ -120,7 +120,7 @@ function Invoke-Status {
 
 function Invoke-Start {
     Write-Host ""
-    Write-Host "=== Starting xauusd-bot ===" -ForegroundColor Yellow
+    Write-Host "=== Starting eurotruck-bot ===" -ForegroundColor Yellow
 
     # Backend
     $svc = Get-Service -Name $BackendService -ErrorAction SilentlyContinue
@@ -154,7 +154,7 @@ function Invoke-Start {
 
 function Invoke-Stop {
     Write-Host ""
-    Write-Host "=== Stopping xauusd-bot ===" -ForegroundColor Yellow
+    Write-Host "=== Stopping eurotruck-bot ===" -ForegroundColor Yellow
 
     # Find detector python — match on 'detector' in command line only
     # Example: python.exe "C:\...\detector\main.py" — never matches a generic python.exe
@@ -186,7 +186,7 @@ function Invoke-Stop {
 
 function Invoke-Restart {
     Write-Host ""
-    Write-Host "=== Restarting xauusd-bot ===" -ForegroundColor Yellow
+    Write-Host "=== Restarting eurotruck-bot ===" -ForegroundColor Yellow
 
     # Stop detector always; stop backend only with -All
     $procs = Get-DetectorPid
@@ -214,7 +214,7 @@ function Invoke-Restart {
 
 function Invoke-Update {
     Write-Host ""
-    Write-Host "=== Updating xauusd-bot ===" -ForegroundColor Yellow
+    Write-Host "=== Updating eurotruck-bot ===" -ForegroundColor Yellow
 
     Push-Location $RepoRoot
 

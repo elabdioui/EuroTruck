@@ -154,7 +154,18 @@ def test_short_ote_continuation_full_pipeline():
 
 
 def test_price_outside_ote_returns_none():
-    assert scan(valid_tf_data("long", entry=1.1035)) is None
+    data = valid_tf_data("long")
+    _set_candle(data["M5"], -2, 1.1035, 1.1036, 1.1034)
+    assert scan(data) is None
+
+
+def test_forming_candle_does_not_change_signal():
+    data = valid_tf_data("long")
+    expected = scan(data)
+    _set_candle(data["M5"], -1, 1.2000, 1.3000, 0.9000)
+    actual = scan(data)
+    assert actual is not None and expected is not None
+    assert actual["entry"] == expected["entry"]
 
 
 def test_no_continuation_bos_returns_none():

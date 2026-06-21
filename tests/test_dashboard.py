@@ -26,10 +26,11 @@ CREATE TABLE signal_lifecycle (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     setup TEXT NOT NULL, direction TEXT NOT NULL, pattern TEXT NOT NULL,
     killzone TEXT, killzone_match INTEGER NOT NULL,
-    entry REAL NOT NULL, sl REAL NOT NULL, tp1 REAL NOT NULL, tp_final REAL NOT NULL,
+    entry REAL NOT NULL, entry_fill REAL NOT NULL, spread_pips REAL NOT NULL DEFAULT 0,
+    sl REAL NOT NULL, tp1 REAL NOT NULL, tp_final REAL NOT NULL,
     risk_pips REAL NOT NULL, planned_rr REAL NOT NULL,
     status TEXT NOT NULL, mfe_pips REAL NOT NULL DEFAULT 0,
-    mae_pips REAL NOT NULL DEFAULT 0, realized_r REAL,
+    mae_pips REAL NOT NULL DEFAULT 0, realized_r REAL, realized_r_net REAL,
     opened_at TEXT NOT NULL, partial_at TEXT, closed_at TEXT,
     last_tick_at TEXT NOT NULL, extra_json TEXT
 );
@@ -57,15 +58,15 @@ def _insert(path, *, setup="london_judas", status="open", realized_r=None, index
             """
             INSERT INTO signal_lifecycle (
                 setup, direction, pattern, killzone, killzone_match,
-                entry, sl, tp1, tp_final, risk_pips, planned_rr,
-                status, mfe_pips, mae_pips, realized_r,
+                entry, entry_fill, spread_pips, sl, tp1, tp_final, risk_pips, planned_rr,
+                status, mfe_pips, mae_pips, realized_r, realized_r_net,
                 opened_at, partial_at, closed_at, last_tick_at, extra_json
             ) VALUES (?, 'long', 'test_pattern', 'LONDON', 1,
-                      1.0852, 1.0840, 1.0864, 1.0876, 12, 2,
-                      ?, 8.2, -4.1, ?, ?, NULL, ?, ?, ?)
+                      1.0852, 1.0853, 1, 1.0840, 1.0864, 1.0876, 12, 2,
+                      ?, 8.2, -4.1, ?, ?, ?, NULL, ?, ?, ?)
             """,
             (
-                setup, status, realized_r, opened_at,
+                setup, status, realized_r, realized_r, opened_at,
                 opened_at if status.startswith("closed_") else None,
                 opened_at, json.dumps({"fixture": index}),
             ),
@@ -78,7 +79,7 @@ def test_summary_empty_db(client):
     assert response.status_code == 200
     assert response.json() == {
         "total_signals": 0, "open": 0, "partial": 0,
-        "closed_tp": 0, "closed_be": 0, "closed_sl": 0,
+        "closed_tp": 0, "closed_be": 0, "closed_sl": 0, "closed_timeout": 0,
         "win_rate": 0.0, "net_r": 0.0, "avg_r": 0.0,
         "first_signal_at": None, "last_signal_at": None,
     }
@@ -97,6 +98,13 @@ def test_summary_with_mix(client, dashboard_db):
     assert data["win_rate"] == 0.5
     assert data["net_r"] == pytest.approx(2.5)
     assert data["avg_r"] == pytest.approx(0.625)
+
+
+def test_summary_counts_timeout_as_closed(client, dashboard_db):
+    _insert(dashboard_db, status="closed_timeout", realized_r=0.25)
+    data = client.get("/api/dashboard/summary").json()
+    assert data["closed_timeout"] == 1
+    assert data["avg_r"] == pytest.approx(0.25)
 
 
 def test_by_setup_aggregates_per_setup(client, dashboard_db):
@@ -141,8 +149,9 @@ def test_signal_detail_returns_full_row(client, dashboard_db):
     data = response.json()
     assert set(data) == {
         "id", "setup", "direction", "pattern", "killzone", "killzone_match",
-        "entry", "sl", "tp1", "tp_final", "risk_pips", "planned_rr", "status",
-        "mfe_pips", "mae_pips", "realized_r", "opened_at", "partial_at",
+        "entry", "entry_fill", "spread_pips", "sl", "tp1", "tp_final",
+        "risk_pips", "planned_rr", "status", "mfe_pips", "mae_pips",
+        "realized_r", "realized_r_net", "opened_at", "partial_at",
         "closed_at", "last_tick_at", "extra_json",
     }
     assert data["extra_json"] == {"fixture": 7}
@@ -163,8 +172,9 @@ def test_export_csv_headers_and_rows(client, dashboard_db):
     assert response.headers["content-type"].startswith("text/csv")
     assert lines[0].split(",") == [
         "id", "setup", "direction", "pattern", "killzone", "killzone_match",
-        "entry", "sl", "tp1", "tp_final", "risk_pips", "planned_rr", "status",
-        "mfe_pips", "mae_pips", "realized_r", "opened_at", "partial_at", "closed_at",
+        "entry", "entry_fill", "spread_pips", "sl", "tp1", "tp_final",
+        "risk_pips", "planned_rr", "status", "mfe_pips", "mae_pips",
+        "realized_r", "realized_r_net", "opened_at", "partial_at", "closed_at",
     ]
     assert len(lines) == 3
 

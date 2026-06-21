@@ -8,6 +8,7 @@ import stats
 from config import cfg
 from indicators.bias import ema
 from indicators.order_block import OrderBlock, detect_order_blocks
+from ._bars import closed
 from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
@@ -91,17 +92,20 @@ def scan(tf_data: dict) -> dict | None:
     ):
         return _reject("insufficient data")
 
-    timestamps = _timestamps(m5)
+    m5c = closed(m5)
+    h1c = closed(h1)
+
+    timestamps = _timestamps(m5c)
     if timestamps is None:
         return _reject("insufficient data")
     pip = float(cfg.PIP)
     if pip <= 0:
         return _reject("invalid pip size")
 
-    structure_m5 = m5.copy()
+    structure_m5 = m5c.copy()
     structure_m5["time"] = timestamps
     obs = detect_order_blocks(structure_m5, lookback=cfg.OB_LOOKBACK)
-    oldest_allowed = len(m5) - int(cfg.BREAKER_LOOKBACK_M5)
+    oldest_allowed = len(m5c) - int(cfg.BREAKER_LOOKBACK_M5)
     recent_obs: list[tuple[int, OrderBlock]] = []
     for ob in obs:
         formation_index = _formation_index(ob, timestamps)
@@ -110,7 +114,7 @@ def scan(tf_data: dict) -> dict | None:
     if not recent_obs:
         return _reject("no OB in lookback")
 
-    entry = float(pd.to_numeric(m5["close"], errors="coerce").iloc[-1])
+    entry = float(pd.to_numeric(m5c["close"], errors="coerce").iloc[-1])
     tolerance = float(cfg.BREAKER_RETEST_TOLERANCE_PIPS) * pip
     candidates: list[tuple[int, int, OrderBlock, str]] = []
     for formation_index, ob in recent_obs:
@@ -132,7 +136,7 @@ def scan(tf_data: dict) -> dict | None:
     formation_index, broken_at_index, ob, direction = max(
         candidates, key=lambda item: item[0]
     )
-    h_bias_aligned = _h1_direction(h1) == direction
+    h_bias_aligned = _h1_direction(h1c) == direction
     if cfg.BREAKER_REQUIRE_H1_BIAS_ALIGN and not h_bias_aligned:
         return _reject("H1 bias not aligned")
 

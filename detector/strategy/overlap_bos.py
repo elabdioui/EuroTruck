@@ -10,6 +10,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from ._bars import closed
 from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
@@ -58,8 +59,11 @@ def scan(tf_data: dict) -> dict | None:
     ):
         return _reject("insufficient data")
 
-    m15_times = _timestamps(m15)
-    m5_times = _timestamps(m5)
+    m15c = closed(m15)
+    m5c = closed(m5)
+
+    m15_times = _timestamps(m15c)
+    m5_times = _timestamps(m5c)
     if m15_times is None or m5_times is None:
         return _reject("insufficient data")
     ny_now = m5_times[-1].tz_convert(_NY_TZ)
@@ -70,7 +74,7 @@ def scan(tf_data: dict) -> dict | None:
     ):
         return _reject(f"outside overlap window (NY hour={ny_now.hour})")
 
-    structure_m15 = m15.copy()
+    structure_m15 = m15c.copy()
     structure_m15["time"] = m15_times
     swings = find_swings(structure_m15, lookback=cfg.SWING_LOOKBACK)
     candidates = [
@@ -100,7 +104,7 @@ def scan(tf_data: dict) -> dict | None:
         return _reject("no M15 BOS anchor")
     anchor = anchors[-1]
 
-    displacement = m15.iloc[bos.candle_idx:]
+    displacement = m15c.iloc[bos.candle_idx:]
     if direction == "long":
         displacement_extreme = float(
             pd.to_numeric(displacement["high"], errors="coerce").max()
@@ -129,7 +133,7 @@ def scan(tf_data: dict) -> dict | None:
     pip = float(cfg.PIP)
     if pip <= 0:
         return _reject("invalid pip size")
-    entry = float(pd.to_numeric(m5["close"], errors="coerce").iloc[-1])
+    entry = float(pd.to_numeric(m5c["close"], errors="coerce").iloc[-1])
     tolerance = cfg.OTE_ENTRY_TOLERANCE_PIPS * pip
     pullback_low = min(fib.ote_low, fib.ote_high) - tolerance
     pullback_high = max(fib.ote_low, fib.ote_high) + tolerance

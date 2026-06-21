@@ -10,6 +10,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from ._bars import closed
 from .ict_tags import build_ict_tags
 from .killzone import get_session_window_utc
 from .registry import SetupSpec, register
@@ -73,9 +74,9 @@ def scan(tf_data: dict) -> dict | None:
         return _reject("insufficient data")
 
     # MT5 includes the current forming candle as the final row on every timeframe.
-    m15c = m15.iloc[:-1]
-    m5c = m5.iloc[:-1]
-    h4c = h4.iloc[:-1]
+    m15c = closed(m15)
+    m5c = closed(m5)
+    h4c = closed(h4)
 
     m15_times = _timestamps(m15c)
     m5_times = _timestamps(m5c)

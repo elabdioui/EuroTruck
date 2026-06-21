@@ -9,6 +9,7 @@ from indicators.fibonacci import (
     compute_fib_from_sweep_bearish,
 )
 from indicators.structure import find_swings, get_recent_structure_break
+from ._bars import closed
 from .ict_tags import build_ict_tags
 from .registry import SetupSpec, register
 
@@ -92,8 +93,10 @@ def scan(tf_data: dict) -> dict | None:
     ):
         return _reject("insufficient data")
 
+    m5c = closed(m5)
+
     numeric_d1 = d1[["high", "low"]].apply(pd.to_numeric, errors="coerce")
-    numeric_m5 = m5[["open", "high", "low", "close"]].apply(
+    numeric_m5 = m5c[["open", "high", "low", "close"]].apply(
         pd.to_numeric, errors="coerce"
     )
     if numeric_d1.isna().any().any() or numeric_m5.isna().any().any():
@@ -106,7 +109,7 @@ def scan(tf_data: dict) -> dict | None:
         return _reject("no PD sweep")
     direction, sweep_index, sweep_wick = sweep
 
-    structure_m5 = _with_time_column(m5)
+    structure_m5 = _with_time_column(m5c)
     if structure_m5 is None:
         return _reject("insufficient data")
     swings = find_swings(structure_m5, lookback=cfg.SWING_LOOKBACK)
