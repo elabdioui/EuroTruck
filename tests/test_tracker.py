@@ -4,6 +4,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
+import pandas as pd
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "detector"))
@@ -17,6 +18,7 @@ def tracker_db(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "PIP", 0.0001)
     monkeypatch.setattr(cfg, "PARTIAL_TP_FRACTION", 0.5)
     monkeypatch.setattr(cfg, "MODEL_SPREAD_COST", True)
+    monkeypatch.setattr(cfg, "TRADE_MAX_AGE_HOURS", 48.0)
     init_db(tmp_path / "tracker.db")
 
 
@@ -136,3 +138,36 @@ def test_known_spread_reduces_realized_r_net():
     row = _row(signal_id)
     assert row["realized_r"] == -1.0
     assert row["realized_r_net"] == pytest.approx(-1.1)
+
+
+def test_m1_wick_between_ticks_hits_take_profit():
+    signal_id = record_signal(_signal())
+    bars = pd.DataFrame([{
+        "time": "2026-01-15T10:01:00+00:00",
+        "open": 1.1000,
+        "high": 1.1021,
+        "low": 1.1000,
+        "close": 1.1002,
+    }])
+    tick(lambda: 1.1002, lambda _: bars)
+    row = _row(signal_id)
+    assert row["status"] == "closed_tp"
+    assert row["mfe_pips"] == pytest.approx(21)
+
+
+def test_old_trade_closes_on_timeout(monkeypatch):
+    from tracker import core
+
+    signal_id = record_signal(_signal())
+    with closing(sqlite3.connect(core._db_path)) as connection:
+        connection.execute(
+            "UPDATE signal_lifecycle SET opened_at = ? WHERE id = ?",
+            ("2026-01-01T00:00:00+00:00", signal_id),
+        )
+        connection.commit()
+    monkeypatch.setattr(core, "_utc_now", lambda: "2026-01-03T01:00:00+00:00")
+    tick(lambda: 1.1005)
+    row = _row(signal_id)
+    assert row["status"] == "closed_timeout"
+    assert row["closed_at"] == "2026-01-03T01:00:00+00:00"
+    assert row["realized_r"] == pytest.approx(0.5)

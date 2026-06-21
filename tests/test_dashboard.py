@@ -79,7 +79,7 @@ def test_summary_empty_db(client):
     assert response.status_code == 200
     assert response.json() == {
         "total_signals": 0, "open": 0, "partial": 0,
-        "closed_tp": 0, "closed_be": 0, "closed_sl": 0,
+        "closed_tp": 0, "closed_be": 0, "closed_sl": 0, "closed_timeout": 0,
         "win_rate": 0.0, "net_r": 0.0, "avg_r": 0.0,
         "first_signal_at": None, "last_signal_at": None,
     }
@@ -98,6 +98,13 @@ def test_summary_with_mix(client, dashboard_db):
     assert data["win_rate"] == 0.5
     assert data["net_r"] == pytest.approx(2.5)
     assert data["avg_r"] == pytest.approx(0.625)
+
+
+def test_summary_counts_timeout_as_closed(client, dashboard_db):
+    _insert(dashboard_db, status="closed_timeout", realized_r=0.25)
+    data = client.get("/api/dashboard/summary").json()
+    assert data["closed_timeout"] == 1
+    assert data["avg_r"] == pytest.approx(0.25)
 
 
 def test_by_setup_aggregates_per_setup(client, dashboard_db):

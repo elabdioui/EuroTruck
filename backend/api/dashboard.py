@@ -16,7 +16,7 @@ from db.lifecycle import ro_connect
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-_CLOSED = ("closed_tp", "closed_be", "closed_sl")
+_CLOSED = ("closed_tp", "closed_be", "closed_sl", "closed_timeout")
 _EXPORT_COLUMNS = (
     "id", "setup", "direction", "pattern", "killzone", "killzone_match",
     "entry", "entry_fill", "spread_pips", "sl", "tp1", "tp_final",
@@ -69,7 +69,8 @@ def summary() -> dict:
                    COALESCE(SUM(CASE WHEN status = 'closed_tp' THEN 1 ELSE 0 END), 0) AS tp_count,
                    COALESCE(SUM(CASE WHEN status = 'closed_be' THEN 1 ELSE 0 END), 0) AS be_count,
                    COALESCE(SUM(CASE WHEN status = 'closed_sl' THEN 1 ELSE 0 END), 0) AS sl_count,
-                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl')
+                   COALESCE(SUM(CASE WHEN status = 'closed_timeout' THEN 1 ELSE 0 END), 0) AS timeout_count,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
                                      THEN realized_r ELSE 0 END), 0) AS net_r,
                    MIN(opened_at) AS first_signal_at,
                    MAX(opened_at) AS last_signal_at
@@ -77,7 +78,7 @@ def summary() -> dict:
             """
         ).fetchone()
     data = _row(row)
-    closed = int(data["tp_count"] + data["be_count"] + data["sl_count"])
+    closed = int(data["tp_count"] + data["be_count"] + data["sl_count"] + data["timeout_count"])
     net_r = float(data["net_r"])
     return {
         "total_signals": int(data["total_signals"]),
@@ -86,6 +87,7 @@ def summary() -> dict:
         "closed_tp": int(data["tp_count"]),
         "closed_be": int(data["be_count"]),
         "closed_sl": int(data["sl_count"]),
+        "closed_timeout": int(data["timeout_count"]),
         "win_rate": _rate(int(data["tp_count"]), closed),
         "net_r": net_r,
         "avg_r": _rate(net_r, closed),
@@ -105,7 +107,8 @@ def by_setup() -> list[dict]:
                    SUM(CASE WHEN status = 'closed_tp' THEN 1 ELSE 0 END) AS tp_count,
                    SUM(CASE WHEN status = 'closed_be' THEN 1 ELSE 0 END) AS be_count,
                    SUM(CASE WHEN status = 'closed_sl' THEN 1 ELSE 0 END) AS sl_count,
-                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl')
+                   SUM(CASE WHEN status = 'closed_timeout' THEN 1 ELSE 0 END) AS timeout_count,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
                                      THEN realized_r ELSE 0 END), 0) AS net_r,
                    COALESCE(AVG(mfe_pips), 0) AS avg_mfe_pips,
                    COALESCE(AVG(mae_pips), 0) AS avg_mae_pips
@@ -115,13 +118,14 @@ def by_setup() -> list[dict]:
     result = []
     for row in rows:
         data = _row(row)
-        closed = int(data["tp_count"] + data["be_count"] + data["sl_count"])
+        closed = int(data["tp_count"] + data["be_count"] + data["sl_count"] + data["timeout_count"])
         net_r = float(data["net_r"])
         result.append({
             "setup": data["setup"], "total": int(data["total"]),
             "open": int(data["open_count"]), "partial": int(data["partial_count"]),
             "closed_tp": int(data["tp_count"]), "closed_be": int(data["be_count"]),
             "closed_sl": int(data["sl_count"]),
+            "closed_timeout": int(data["timeout_count"]),
             "win_rate": _rate(int(data["tp_count"]), closed),
             "net_r": net_r, "avg_r": _rate(net_r, closed),
             "avg_mfe_pips": float(data["avg_mfe_pips"]),

@@ -102,6 +102,24 @@ def get_current_quote(symbol: str) -> dict[str, float] | None:
     return {"bid": bid, "ask": ask, "mid": (bid + ask) / 2.0}
 
 
+def get_closed_m1_since(symbol: str, since: str | datetime) -> pd.DataFrame:
+    """Return closed M1 candles newer than an ISO timestamp."""
+    since_ts = pd.Timestamp(since)
+    if since_ts.tzinfo is None:
+        since_ts = since_ts.tz_localize("UTC")
+    else:
+        since_ts = since_ts.tz_convert("UTC")
+    elapsed_minutes = max(
+        0, int((pd.Timestamp.now(tz="UTC") - since_ts).total_seconds() // 60)
+    )
+    count = max(int(cfg.OHLC_COUNT_M1), elapsed_minutes + 3)
+    frame = get_ohlc(symbol, "M1", count)
+    if frame.empty:
+        return frame
+    closed = frame.iloc[:-1]
+    return closed.loc[closed["time"] > since_ts].reset_index(drop=True)
+
+
 def get_all_timeframes(symbol: str) -> dict[str, pd.DataFrame]:
     return {
         "M1": get_ohlc(symbol, "M1", cfg.OHLC_COUNT_M1),

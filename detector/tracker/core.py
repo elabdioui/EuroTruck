@@ -193,54 +193,105 @@ def _net_realized_r(signal: dict, status: str) -> float | None:
     return None
 
 
-def _tick_signal(signal: dict, quote) -> None:
-    direction = signal["direction"]
-    entry = float(signal["entry"])
+def _advance_range(state: dict, low: float, high: float, event_time: str) -> None:
+    direction = state["direction"]
+    entry = float(state["entry"])
+    pip = float(cfg.PIP)
+    spread = (
+        float(state.get("spread_pips") or 0) * pip
+        if cfg.MODEL_SPREAD_COST and direction == "short"
+        else 0.0
+    )
+    adverse_low = float(low) + spread
+    adverse_high = float(high) + spread
+    excursions = [
+        (price - entry if direction == "long" else entry - price) / pip
+        for price in (adverse_low, adverse_high)
+    ]
+    state["mfe_pips"] = max(float(state["mfe_pips"]), *excursions)
+    state["mae_pips"] = min(float(state["mae_pips"]), *excursions)
+
+    status = state["status"]
+    effective_sl = entry if status == "partial" else float(state["sl"])
+    sl_price = adverse_low if direction == "long" else adverse_high
+    tp_price = adverse_high if direction == "long" else adverse_low
+    if _level_hit(direction, sl_price, effective_sl, "sl"):
+        if status == "partial":
+            state["status"] = "closed_be"
+            state["realized_r"] = float(cfg.PARTIAL_TP_FRACTION)
+        else:
+            state["status"] = "closed_sl"
+            state["realized_r"] = -1.0
+        state["closed_at"] = event_time
+        return
+
+    if status == "open" and _level_hit(
+        direction, tp_price, float(state["tp1"]), "tp"
+    ):
+        state["status"] = "partial"
+        state["partial_at"] = event_time
+        state["realized_r"] = float(cfg.PARTIAL_TP_FRACTION)
+
+    if state["status"] == "partial" and _level_hit(
+        direction, tp_price, float(state["tp_final"]), "tp"
+    ):
+        state["status"] = "closed_tp"
+        state["realized_r"] = float(cfg.PARTIAL_TP_FRACTION) + (
+            (1.0 - float(cfg.PARTIAL_TP_FRACTION)) * float(state["planned_rr"])
+        )
+        state["closed_at"] = event_time
+
+
+def _tick_signal(signal: dict, quote, m1_bars=None) -> None:
+    state = dict(signal)
+    now = _utc_now()
+    if m1_bars is not None:
+        records = (
+            m1_bars.to_dict("records")
+            if hasattr(m1_bars, "to_dict")
+            else list(m1_bars)
+        )
+        for bar in records:
+            if state["status"].startswith("closed_"):
+                break
+            event_time = str(bar.get("time") or now)
+            _advance_range(state, float(bar["low"]), float(bar["high"]), event_time)
+
     bid, ask, mid = _quote_prices(quote)
     current_price = (
-        bid if cfg.MODEL_SPREAD_COST and direction == "long"
-        else ask if cfg.MODEL_SPREAD_COST and direction == "short"
+        bid if cfg.MODEL_SPREAD_COST and state["direction"] == "long"
+        else ask if cfg.MODEL_SPREAD_COST and state["direction"] == "short"
         else mid
     )
-    excursion = (
-        current_price - entry if direction == "long" else entry - current_price
-    ) / float(cfg.PIP)
-    mfe_pips = max(float(signal["mfe_pips"]), excursion)
-    mae_pips = min(float(signal["mae_pips"]), excursion)
-    status = signal["status"]
-    partial_at = signal["partial_at"]
-    closed_at = signal["closed_at"]
-    realized_r = signal["realized_r"]
-    realized_r_net = signal.get("realized_r_net")
-    now = _utc_now()
+    if not state["status"].startswith("closed_"):
+        _advance_range(state, current_price, current_price, now)
 
-    effective_sl = entry if status == "partial" else float(signal["sl"])
-    if _level_hit(direction, current_price, effective_sl, "sl"):
-        if status == "partial":
-            status = "closed_be"
-            realized_r = float(cfg.PARTIAL_TP_FRACTION)
-        else:
-            status = "closed_sl"
-            realized_r = -1.0
-        closed_at = now
-    else:
-        if status == "open" and _level_hit(
-            direction, current_price, float(signal["tp1"]), "tp"
-        ):
-            status = "partial"
-            partial_at = now
-            realized_r = float(cfg.PARTIAL_TP_FRACTION)
+    if not state["status"].startswith("closed_"):
+        opened_at = datetime.fromisoformat(str(state["opened_at"]))
+        if opened_at.tzinfo is None:
+            opened_at = opened_at.replace(tzinfo=timezone.utc)
+        now_dt = datetime.fromisoformat(now)
+        age_hours = (now_dt - opened_at).total_seconds() / 3600.0
+        if age_hours >= float(cfg.TRADE_MAX_AGE_HOURS):
+            direction = state["direction"]
+            entry = float(state["entry"])
+            entry_fill = float(state.get("entry_fill") or entry)
+            risk = abs(entry - float(state["sl"]))
+            gross_move = current_price - entry if direction == "long" else entry - current_price
+            net_move = gross_move
+            if cfg.MODEL_SPREAD_COST:
+                net_move = (
+                    current_price - entry_fill
+                    if direction == "long"
+                    else entry_fill - current_price
+                )
+            state["status"] = "closed_timeout"
+            state["realized_r"] = gross_move / risk if risk else 0.0
+            state["realized_r_net"] = net_move / risk if risk else 0.0
+            state["closed_at"] = now
 
-        if status == "partial" and _level_hit(
-            direction, current_price, float(signal["tp_final"]), "tp"
-        ):
-            status = "closed_tp"
-            realized_r = float(cfg.PARTIAL_TP_FRACTION) + (
-                (1.0 - float(cfg.PARTIAL_TP_FRACTION)) * float(signal["planned_rr"])
-            )
-            closed_at = now
-
-    realized_r_net = _net_realized_r({**signal, "realized_r": realized_r}, status)
+    if state["status"] != "closed_timeout":
+        state["realized_r_net"] = _net_realized_r(state, state["status"])
 
     with _connect() as connection:
         connection.execute(
@@ -251,20 +302,23 @@ def _tick_signal(signal: dict, quote) -> None:
             WHERE id = ?
             """,
             (
-                status,
-                mfe_pips,
-                mae_pips,
-                realized_r,
-                realized_r_net,
-                partial_at,
-                closed_at,
+                state["status"],
+                state["mfe_pips"],
+                state["mae_pips"],
+                state["realized_r"],
+                state["realized_r_net"],
+                state["partial_at"],
+                state["closed_at"],
                 now,
-                signal["id"],
+                state["id"],
             ),
         )
 
 
-def tick(get_price_callable: Callable[[], object]) -> None:
+def tick(
+    get_price_callable: Callable[[], object],
+    get_m1_callable: Callable[[str], object] | None = None,
+) -> None:
     try:
         signals = get_open_signals()
         if not signals:
@@ -276,7 +330,12 @@ def tick(get_price_callable: Callable[[], object]) -> None:
                 if quote is None:
                     log.warning("tracker_tick skipped signal %s: current price unavailable", signal["id"])
                     continue
-                _tick_signal(signal, quote)
+                m1_bars = (
+                    get_m1_callable(signal["last_tick_at"])
+                    if get_m1_callable is not None
+                    else None
+                )
+                _tick_signal(signal, quote, m1_bars)
             except Exception:
                 log.exception("tracker_tick failed for signal %s", signal.get("id"))
     except Exception:

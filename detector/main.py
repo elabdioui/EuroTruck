@@ -178,7 +178,10 @@ def main() -> None:
     scheduler.add_job(heartbeat, "interval", minutes=cfg.HEARTBEAT_MINUTES, id="heartbeat")
     tracker_init()
     scheduler.add_job(
-        lambda: tracker_tick(lambda: mt5.get_current_quote(cfg.SYMBOL)),
+        lambda: tracker_tick(
+            lambda: mt5.get_current_quote(cfg.SYMBOL),
+            lambda since: mt5.get_closed_m1_since(cfg.SYMBOL, since),
+        ),
         "interval", seconds=cfg.TRACKER_TICK_SECONDS, id="tracker_tick",
     )
 
