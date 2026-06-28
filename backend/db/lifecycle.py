@@ -9,7 +9,12 @@ from typing import Iterator
 def _db_path() -> Path:
     from core.config import settings
 
-    return Path(settings.TRACKER_DB_PATH).resolve()
+    raw = Path(settings.TRACKER_DB_PATH)
+    if raw.is_absolute():
+        return raw
+    # Anchor relative tracker paths on the repository root, matching
+    # detector/tracker/core.py._resolve_db_path regardless of backend CWD.
+    return (Path(__file__).resolve().parents[2] / raw).resolve()
 
 
 @contextmanager

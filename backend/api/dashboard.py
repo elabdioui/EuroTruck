@@ -58,6 +58,29 @@ def _row(row: sqlite3.Row) -> dict:
     return dict(row)
 
 
+def _max_drawdown(values: list[float]) -> float:
+    peak = 0.0
+    cumulative = 0.0
+    max_drawdown = 0.0
+    for value in values:
+        cumulative += value
+        peak = max(peak, cumulative)
+        max_drawdown = max(max_drawdown, peak - cumulative)
+    return max_drawdown
+
+
+def _closed_r_values(connection: sqlite3.Connection) -> list[float]:
+    rows = connection.execute(
+        """
+        SELECT COALESCE(realized_r, 0) AS realized_r
+        FROM signal_lifecycle
+        WHERE status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+        ORDER BY closed_at ASC, id ASC
+        """
+    ).fetchall()
+    return [float(row["realized_r"]) for row in rows]
+
+
 @router.get("/summary")
 def summary() -> dict:
     with _connect() as connection:
@@ -72,27 +95,181 @@ def summary() -> dict:
                    COALESCE(SUM(CASE WHEN status = 'closed_timeout' THEN 1 ELSE 0 END), 0) AS timeout_count,
                    COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
                                      THEN realized_r ELSE 0 END), 0) AS net_r,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                     THEN realized_r_net ELSE 0 END), 0) AS net_r_net,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                          AND realized_r > 0
+                                     THEN realized_r ELSE 0 END), 0) AS gross_wins_r,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                          AND realized_r < 0
+                                     THEN realized_r ELSE 0 END), 0) AS gross_losses_r,
+                   AVG(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                 AND realized_r > 0 THEN realized_r END) AS avg_win_r,
+                   AVG(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                 AND realized_r < 0 THEN realized_r END) AS avg_loss_r,
                    MIN(opened_at) AS first_signal_at,
                    MAX(opened_at) AS last_signal_at
             FROM signal_lifecycle
             """
         ).fetchone()
+        closed_values = _closed_r_values(connection)
     data = _row(row)
     closed = int(data["tp_count"] + data["be_count"] + data["sl_count"] + data["timeout_count"])
     net_r = float(data["net_r"])
+    net_r_net = float(data["net_r_net"])
+    losses = abs(float(data["gross_losses_r"]))
     return {
         "total_signals": int(data["total_signals"]),
         "open": int(data["open_count"]),
         "partial": int(data["partial_count"]),
+        "closed_count": closed,
         "closed_tp": int(data["tp_count"]),
         "closed_be": int(data["be_count"]),
         "closed_sl": int(data["sl_count"]),
         "closed_timeout": int(data["timeout_count"]),
         "win_rate": _rate(int(data["tp_count"]), closed),
         "net_r": net_r,
+        "net_r_net": net_r_net,
         "avg_r": _rate(net_r, closed),
+        "expectancy_r": _rate(net_r, closed),
+        "expectancy_r_net": _rate(net_r_net, closed),
+        "profit_factor": None if losses == 0 else float(data["gross_wins_r"]) / losses,
+        "avg_win_r": None if data["avg_win_r"] is None else float(data["avg_win_r"]),
+        "avg_loss_r": None if data["avg_loss_r"] is None else float(data["avg_loss_r"]),
+        "max_drawdown_r": _max_drawdown(closed_values),
         "first_signal_at": data["first_signal_at"],
         "last_signal_at": data["last_signal_at"],
+    }
+
+
+@router.get("/equity")
+def equity() -> dict:
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT closed_at, setup, COALESCE(realized_r, 0) AS realized_r,
+                   COALESCE(realized_r_net, 0) AS realized_r_net
+            FROM signal_lifecycle
+            WHERE status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+            ORDER BY closed_at ASC, id ASC
+            """
+        ).fetchall()
+
+    points = []
+    cumulative = 0.0
+    cumulative_net = 0.0
+    values = []
+    for row in rows:
+        realized_r = float(row["realized_r"])
+        realized_r_net = float(row["realized_r_net"])
+        cumulative += realized_r
+        cumulative_net += realized_r_net
+        values.append(realized_r)
+        points.append({
+            "closed_at": row["closed_at"],
+            "setup": row["setup"],
+            "realized_r": realized_r,
+            "cum_r": cumulative,
+            "cum_r_net": cumulative_net,
+        })
+    return {"points": points, "max_drawdown_r": _max_drawdown(values)}
+
+
+@router.get("/breakdown")
+def breakdown(dimension: str = Query("setup")) -> list[dict]:
+    dimensions = {
+        "setup": ("setup", "setup"),
+        "killzone": ("killzone", "COALESCE(killzone, 'unknown')"),
+        "direction": ("direction", "direction"),
+        "killzone_match": (
+            "killzone_match",
+            "CASE WHEN killzone_match = 1 THEN 'matched' ELSE 'unmatched' END",
+        ),
+    }
+    if dimension not in dimensions:
+        raise HTTPException(400, "Invalid breakdown dimension")
+
+    _, expression = dimensions[dimension]
+    with _connect() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {expression} AS key,
+                   COUNT(*) AS total,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                     THEN 1 ELSE 0 END), 0) AS closed,
+                   COALESCE(SUM(CASE WHEN status = 'closed_tp' THEN 1 ELSE 0 END), 0) AS tp,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                     THEN realized_r ELSE 0 END), 0) AS net_r,
+                   COALESCE(SUM(CASE WHEN status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+                                     THEN realized_r_net ELSE 0 END), 0) AS net_r_net
+            FROM signal_lifecycle
+            GROUP BY {expression}
+            ORDER BY key
+            """
+        ).fetchall()
+
+    result = []
+    for row in rows:
+        closed = int(row["closed"])
+        net_r = float(row["net_r"])
+        result.append({
+            "key": str(row["key"] if row["key"] is not None else "unknown"),
+            "total": int(row["total"]),
+            "closed": closed,
+            "win_rate": _rate(int(row["tp"]), closed),
+            "net_r": net_r,
+            "net_r_net": float(row["net_r_net"]),
+            "avg_r": _rate(net_r, closed),
+            "expectancy_r": _rate(net_r, closed),
+        })
+    return result
+
+
+@router.get("/distribution")
+def distribution() -> dict:
+    buckets = [
+        ("<=-1", lambda value: value <= -1),
+        ("-1..0", lambda value: -1 < value < 0),
+        ("0..1", lambda value: 0 <= value < 1),
+        ("1..2", lambda value: 1 <= value < 2),
+        (">=2", lambda value: value >= 2),
+    ]
+    bucket_counts = {name: 0 for name, _ in buckets}
+
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT status, COALESCE(realized_r, 0) AS realized_r,
+                   mfe_pips, mae_pips
+            FROM signal_lifecycle
+            WHERE status IN ('closed_tp', 'closed_be', 'closed_sl', 'closed_timeout')
+            """
+        ).fetchall()
+
+    outcomes = {status: 0 for status in _CLOSED}
+    mfe_values = []
+    mae_values = []
+    for row in rows:
+        status = row["status"]
+        if status in outcomes:
+            outcomes[status] += 1
+        realized_r = float(row["realized_r"])
+        for name, contains in buckets:
+            if contains(realized_r):
+                bucket_counts[name] += 1
+                break
+        if row["mfe_pips"] is not None:
+            mfe_values.append(float(row["mfe_pips"]))
+        if row["mae_pips"] is not None:
+            mae_values.append(float(row["mae_pips"]))
+
+    return {
+        "r_buckets": [
+            {"bucket": name, "count": bucket_counts[name]} for name, _ in buckets
+        ],
+        "outcomes": outcomes,
+        "avg_mfe_pips": _rate(sum(mfe_values), len(mfe_values)),
+        "avg_mae_pips": _rate(sum(mae_values), len(mae_values)),
     }
 
 

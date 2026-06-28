@@ -18,6 +18,7 @@ os.environ.setdefault("TELEGRAM_CHAT_ID", "")
 
 from core.config import settings
 from db.lifecycle import ro_connect
+from api.dashboard import _EXPORT_COLUMNS
 from main import app
 
 
@@ -51,8 +52,21 @@ def client(dashboard_db):
     return TestClient(app)
 
 
-def _insert(path, *, setup="london_judas", status="open", realized_r=None, index=1):
+def _insert(
+    path,
+    *,
+    setup="london_judas",
+    status="open",
+    realized_r=None,
+    realized_r_net=None,
+    killzone="LONDON",
+    direction="long",
+    index=1,
+):
     opened_at = f"2026-06-{(index % 28) + 1:02d}T08:{index % 60:02d}:00+00:00"
+    closed_at = opened_at if status.startswith("closed_") else None
+    if realized_r_net is None:
+        realized_r_net = realized_r
     with sqlite3.connect(path) as connection:
         cursor = connection.execute(
             """
@@ -61,13 +75,13 @@ def _insert(path, *, setup="london_judas", status="open", realized_r=None, index
                 entry, entry_fill, spread_pips, sl, tp1, tp_final, risk_pips, planned_rr,
                 status, mfe_pips, mae_pips, realized_r, realized_r_net,
                 opened_at, partial_at, closed_at, last_tick_at, extra_json
-            ) VALUES (?, 'long', 'test_pattern', 'LONDON', 1,
+            ) VALUES (?, ?, 'test_pattern', ?, 1,
                       1.0852, 1.0853, 1, 1.0840, 1.0864, 1.0876, 12, 2,
                       ?, 8.2, -4.1, ?, ?, ?, NULL, ?, ?, ?)
             """,
             (
-                setup, status, realized_r, realized_r, opened_at,
-                opened_at if status.startswith("closed_") else None,
+                setup, direction, killzone, status, realized_r, realized_r_net, opened_at,
+                closed_at,
                 opened_at, json.dumps({"fixture": index}),
             ),
         )
@@ -79,8 +93,12 @@ def test_summary_empty_db(client):
     assert response.status_code == 200
     assert response.json() == {
         "total_signals": 0, "open": 0, "partial": 0,
+        "closed_count": 0,
         "closed_tp": 0, "closed_be": 0, "closed_sl": 0, "closed_timeout": 0,
-        "win_rate": 0.0, "net_r": 0.0, "avg_r": 0.0,
+        "win_rate": 0.0, "net_r": 0.0, "net_r_net": 0.0,
+        "avg_r": 0.0, "expectancy_r": 0.0, "expectancy_r_net": 0.0,
+        "profit_factor": None, "avg_win_r": None, "avg_loss_r": None,
+        "max_drawdown_r": 0.0,
         "first_signal_at": None, "last_signal_at": None,
     }
 
@@ -94,10 +112,18 @@ def test_summary_with_mix(client, dashboard_db):
     data = client.get("/api/dashboard/summary").json()
     assert data["total_signals"] == 5
     assert data["open"] == 1
+    assert data["closed_count"] == 4
     assert data["closed_tp"] == 2
     assert data["win_rate"] == 0.5
     assert data["net_r"] == pytest.approx(2.5)
+    assert data["net_r_net"] == pytest.approx(2.5)
     assert data["avg_r"] == pytest.approx(0.625)
+    assert data["expectancy_r"] == pytest.approx(0.625)
+    assert data["expectancy_r_net"] == pytest.approx(0.625)
+    assert data["profit_factor"] == pytest.approx(3.5)
+    assert data["avg_win_r"] == pytest.approx(1.1666666667)
+    assert data["avg_loss_r"] == pytest.approx(-1.0)
+    assert data["max_drawdown_r"] == pytest.approx(1.0)
 
 
 def test_summary_counts_timeout_as_closed(client, dashboard_db):
@@ -105,6 +131,78 @@ def test_summary_counts_timeout_as_closed(client, dashboard_db):
     data = client.get("/api/dashboard/summary").json()
     assert data["closed_timeout"] == 1
     assert data["avg_r"] == pytest.approx(0.25)
+
+
+def test_summary_uses_net_spread_and_drawdown(client, dashboard_db):
+    _insert(dashboard_db, status="closed_tp", realized_r=1.0, realized_r_net=0.8, index=1)
+    _insert(dashboard_db, status="closed_sl", realized_r=-1.0, realized_r_net=-1.1, index=2)
+    _insert(dashboard_db, status="closed_tp", realized_r=2.0, realized_r_net=1.8, index=3)
+    data = client.get("/api/dashboard/summary").json()
+    assert data["net_r"] == pytest.approx(2.0)
+    assert data["net_r_net"] == pytest.approx(1.5)
+    assert data["expectancy_r_net"] == pytest.approx(0.5)
+    assert data["max_drawdown_r"] == pytest.approx(1.0)
+
+
+def test_equity_empty_without_closed_trades(client, dashboard_db):
+    _insert(dashboard_db, status="open")
+    data = client.get("/api/dashboard/equity").json()
+    assert data == {"points": [], "max_drawdown_r": 0.0}
+
+
+def test_equity_returns_ordered_cumulative_points(client, dashboard_db):
+    _insert(dashboard_db, status="closed_tp", realized_r=1.0, realized_r_net=0.8, index=3)
+    _insert(dashboard_db, status="closed_sl", realized_r=-1.0, realized_r_net=-1.1, index=1)
+    _insert(dashboard_db, status="closed_tp", realized_r=2.0, realized_r_net=1.8, index=2)
+    data = client.get("/api/dashboard/equity").json()
+    assert [point["realized_r"] for point in data["points"]] == [-1.0, 2.0, 1.0]
+    assert [point["cum_r"] for point in data["points"]] == [-1.0, 1.0, 2.0]
+    assert data["points"][-1]["cum_r_net"] == pytest.approx(1.5)
+    assert data["max_drawdown_r"] == pytest.approx(1.0)
+
+
+def test_breakdown_by_killzone(client, dashboard_db):
+    _insert(dashboard_db, killzone="LONDON", status="closed_tp", realized_r=1.5)
+    _insert(dashboard_db, killzone="NY_PM", status="closed_sl", realized_r=-1.0, index=2)
+    _insert(dashboard_db, killzone="NY_PM", status="open", index=3)
+    rows = client.get("/api/dashboard/breakdown?dimension=killzone").json()
+    by_key = {row["key"]: row for row in rows}
+    assert by_key["LONDON"]["closed"] == 1
+    assert by_key["LONDON"]["win_rate"] == 1.0
+    assert by_key["NY_PM"]["total"] == 2
+    assert by_key["NY_PM"]["net_r"] == pytest.approx(-1.0)
+
+
+def test_breakdown_invalid_dimension_returns_400(client):
+    response = client.get("/api/dashboard/breakdown?dimension=bad")
+    assert response.status_code == 400
+
+
+def test_distribution_buckets_and_outcomes(client, dashboard_db):
+    for index, (status, realized_r) in enumerate((
+        ("closed_sl", -1.0),
+        ("closed_timeout", -0.25),
+        ("closed_be", 0.5),
+        ("closed_tp", 1.5),
+        ("closed_tp", 2.0),
+    ), start=1):
+        _insert(dashboard_db, status=status, realized_r=realized_r, index=index)
+    data = client.get("/api/dashboard/distribution").json()
+    assert data["r_buckets"] == [
+        {"bucket": "<=-1", "count": 1},
+        {"bucket": "-1..0", "count": 1},
+        {"bucket": "0..1", "count": 1},
+        {"bucket": "1..2", "count": 1},
+        {"bucket": ">=2", "count": 1},
+    ]
+    assert data["outcomes"] == {
+        "closed_tp": 2,
+        "closed_be": 1,
+        "closed_sl": 1,
+        "closed_timeout": 1,
+    }
+    assert data["avg_mfe_pips"] == pytest.approx(8.2)
+    assert data["avg_mae_pips"] == pytest.approx(-4.1)
 
 
 def test_by_setup_aggregates_per_setup(client, dashboard_db):
@@ -170,12 +268,7 @@ def test_export_csv_headers_and_rows(client, dashboard_db):
     lines = response.text.strip().splitlines()
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
-    assert lines[0].split(",") == [
-        "id", "setup", "direction", "pattern", "killzone", "killzone_match",
-        "entry", "entry_fill", "spread_pips", "sl", "tp1", "tp_final",
-        "risk_pips", "planned_rr", "status", "mfe_pips", "mae_pips",
-        "realized_r", "realized_r_net", "opened_at", "partial_at", "closed_at",
-    ]
+    assert lines[0].split(",") == list(_EXPORT_COLUMNS)
     assert len(lines) == 3
 
 
