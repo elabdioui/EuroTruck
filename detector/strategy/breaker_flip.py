@@ -189,7 +189,7 @@ def scan(tf_data: dict) -> dict | None:
 register(SetupSpec(
     name=NAME,
     scan=scan,
-    killzone_mode="preferred",
-    killzones=("LONDON", "NY_AM"),
+    killzone_mode="required",
+    killzones=("LONDON", "NY_AM", "NY_PM"),
     cooldown_seconds=3600,
 ))

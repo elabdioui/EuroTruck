@@ -4,8 +4,9 @@ from typing import Callable, Optional
 
 # Killzone gating contract:
 #   "required"  -> setup only runs when the active killzone is allowed
-#   "preferred" -> setup always runs, but killzone_match is false outside its zones
-#   "agnostic"  -> setup always runs and is not tied to a killzone
+#   "preferred" -> setup only runs during an active killzone, and only matches
+#                  its configured zones when provided
+#   "agnostic"  -> setup runs during any active killzone
 KillzoneMode = str
 
 
@@ -36,15 +37,17 @@ def all_setups() -> list[SetupSpec]:
 def runnable_setups(active_kz: Optional[str]) -> list[SetupSpec]:
     """Return the setups eligible to scan for the active killzone.
 
-    Required setups only run in one of their configured killzones. Preferred
-    and agnostic setups always run; downstream signal tagging records whether
-    a preferred setup matched its configured killzone.
+    The detector is globally killzone-gated: no setup scans outside an active
+    killzone. Required and preferred setups with explicit killzones only run
+    when the active killzone is one of their configured sessions.
     """
+    if active_kz is None:
+        return []
+
     out: list[SetupSpec] = []
     for spec in _REGISTRY.values():
-        if spec.killzone_mode == "required":
-            if active_kz is None or active_kz not in spec.killzones:
-                continue
+        if spec.killzones and active_kz not in spec.killzones:
+            continue
         out.append(spec)
     return out
 

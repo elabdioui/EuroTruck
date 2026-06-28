@@ -21,24 +21,26 @@ def test_required_skipped_outside_killzone():
     assert _names("LONDON") == ["req"]
 
 
-def test_preferred_runs_everywhere():
+def test_preferred_runs_only_in_configured_killzone():
     register(SetupSpec(
         name="pref",
         scan=lambda tf: None,
         killzone_mode="preferred",
         killzones=("LONDON", "NY_AM"),
     ))
-    assert _names(None) == ["pref"]
+    assert _names(None) == []
     assert _names("LONDON") == ["pref"]
+    assert _names("NY_PM") == []
 
 
-def test_agnostic_runs_everywhere():
+def test_agnostic_runs_in_any_active_killzone():
     register(SetupSpec(
         name="agn",
         scan=lambda tf: None,
         killzone_mode="agnostic",
     ))
-    assert _names(None) == ["agn"]
+    assert _names(None) == []
+    assert _names("NY_PM") == ["agn"]
 
 
 def test_mixed_outside_killzone_keeps_only_non_required():
@@ -59,5 +61,5 @@ def test_mixed_outside_killzone_keeps_only_non_required():
         scan=lambda tf: None,
         killzone_mode="agnostic",
     ))
-    assert _names(None) == ["agn", "pref"]
+    assert _names(None) == []
     assert _names("LONDON") == ["agn", "pref", "req"]
