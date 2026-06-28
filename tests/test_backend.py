@@ -117,8 +117,13 @@ def test_formatter_reads_new_schema():
     msg = format_alert(SAMPLE_SIGNAL, SAMPLE_VERDICT, "groq", NO_NEWS)
     for expected in ("london_judas", "1.08500", "1.08400", "1.08600", "1.08700"):
         assert expected in msg
-    assert "Verdict: GO · Impact: LOW" in msg
-    assert "RR 2.00" in msg
+    assert "Verdict: [OK] GO" in msg
+    assert "Impact: LOW" in msg
+    assert "🎯 Entry : 1.08500" in msg
+    assert "🛑 SL    : 1.08400" in msg
+    assert "🥇 TP1   : 1.08600" in msg
+    assert "🏁 TP    : 1.08700" in msg
+    assert "📊 RR    : 2.00" in msg
 
 
 def test_format_alert_no_verdict():
@@ -127,7 +132,7 @@ def test_format_alert_no_verdict():
 
 def test_format_no_go_news():
     msg = format_no_go_news(SAMPLE_SIGNAL, "NFP")
-    assert "BLOQUÉ" in msg
+    assert "BLOQUE" in msg
     assert "NFP" in msg
 
 
@@ -205,7 +210,7 @@ def test_red_news_annotates_not_blocks_by_default(backend_client, monkeypatch):
     monkeypatch.setattr(signal_api, "send_message", lambda text: sent.append(text) or 43)
     body = _post_signal(client).json()
     assert body["status"] == "ok"
-    assert "🔴 News rouge imminente" in sent[0]
+    assert "News rouge imminente" in sent[0]
 
 
 def test_red_news_blocks_when_hard_flag_on(backend_client, monkeypatch):

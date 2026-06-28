@@ -69,6 +69,12 @@ def scan_once() -> None:
     now_utc = datetime.now(tz=timezone.utc)
     active_kz = get_active_killzone(now_utc)
 
+    # SPEC 17 hard-gate: do not fetch market data or scan outside killzones.
+    if active_kz is None:
+        mins = minutes_to_next_killzone(now_utc)
+        log.debug("Hors killzone - scan skip | next_kz_in=%dmin", mins)
+        return
+
     runnable = runnable_setups(active_kz)
     if not runnable:
         mins = minutes_to_next_killzone(now_utc)

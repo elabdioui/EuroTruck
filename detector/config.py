@@ -28,7 +28,9 @@ class Config:
     BACKEND_WEBHOOK_URL: str = os.getenv("BACKEND_WEBHOOK_URL", "")
     WEBHOOK_HMAC_SECRET: str = os.getenv("WEBHOOK_HMAC_SECRET", "")
 
-    ENABLED_KILLZONES: list[str] = os.getenv("ENABLED_KILLZONES", "LONDON,NY_AM").split(",")
+    ENABLED_KILLZONES: list[str] = os.getenv(
+        "ENABLED_KILLZONES", "LONDON,NY_AM,NY_PM"
+    ).split(",")
 
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 

@@ -87,8 +87,8 @@ def setup_config(monkeypatch):
 
 def test_setup_registered():
     spec = next(item for item in all_setups() if item.name == NAME)
-    assert spec.killzone_mode == "preferred"
-    assert spec.killzones == ("LONDON", "NY_AM")
+    assert spec.killzone_mode == "required"
+    assert spec.killzones == ("LONDON", "NY_AM", "NY_PM")
     assert spec.cooldown_seconds == 3600
 
 
