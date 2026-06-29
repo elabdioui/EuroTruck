@@ -155,6 +155,37 @@ def test_m1_wick_between_ticks_hits_take_profit():
     assert row["mfe_pips"] == pytest.approx(21)
 
 
+def test_favorable_m1_bar_prefers_tp_before_late_stop_long():
+    signal_id = record_signal(_signal())
+    bars = pd.DataFrame([{
+        "time": "2026-01-15T10:01:00+00:00",
+        "open": 1.1000,
+        "high": 1.1021,
+        "low": 1.0989,
+        "close": 1.1015,
+    }])
+    tick(lambda: 1.1015, lambda _: bars)
+    row = _row(signal_id)
+    assert row["status"] == "closed_tp"
+    assert row["mfe_pips"] == pytest.approx(21)
+    assert row["mae_pips"] == pytest.approx(-11)
+
+
+def test_adverse_m1_bar_prefers_stop_before_late_tp_long():
+    signal_id = record_signal(_signal())
+    bars = pd.DataFrame([{
+        "time": "2026-01-15T10:01:00+00:00",
+        "open": 1.1000,
+        "high": 1.1021,
+        "low": 1.0989,
+        "close": 1.0995,
+    }])
+    tick(lambda: 1.0995, lambda _: bars)
+    row = _row(signal_id)
+    assert row["status"] == "closed_sl"
+    assert row["realized_r"] == -1.0
+
+
 def test_old_trade_closes_on_timeout(monkeypatch):
     from tracker import core
 
