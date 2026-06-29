@@ -242,6 +242,29 @@ def _advance_range(state: dict, low: float, high: float, event_time: str) -> Non
         state["closed_at"] = event_time
 
 
+def _advance_price_path(state: dict, prices: list[float], event_time: str) -> None:
+    for price in prices:
+        if state["status"].startswith("closed_"):
+            break
+        _advance_range(state, price, price, event_time)
+
+
+def _advance_bar(state: dict, bar: dict, event_time: str) -> None:
+    open_price = float(bar["open"])
+    high = float(bar["high"])
+    low = float(bar["low"])
+    close = float(bar["close"])
+    direction = state["direction"]
+    favorable = (
+        close >= open_price if direction == "long" else close <= open_price
+    )
+    if direction == "long":
+        extremes = [high, low] if favorable else [low, high]
+    else:
+        extremes = [low, high] if favorable else [high, low]
+    _advance_price_path(state, [open_price, *extremes, close], event_time)
+
+
 def _tick_signal(signal: dict, quote, m1_bars=None) -> None:
     state = dict(signal)
     now = _utc_now()
@@ -255,7 +278,10 @@ def _tick_signal(signal: dict, quote, m1_bars=None) -> None:
             if state["status"].startswith("closed_"):
                 break
             event_time = str(bar.get("time") or now)
-            _advance_range(state, float(bar["low"]), float(bar["high"]), event_time)
+            if {"open", "high", "low", "close"}.issubset(bar):
+                _advance_bar(state, bar, event_time)
+            else:
+                _advance_range(state, float(bar["low"]), float(bar["high"]), event_time)
 
     bid, ask, mid = _quote_prices(quote)
     current_price = (
